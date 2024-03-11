@@ -33,20 +33,9 @@ foreach(pkg ${ament_dependencies})
   find_package(${pkg} REQUIRED)
 endforeach()
 
-#
-# find libav because the dependencies exported by ffmpeg_image_transport are
-# screwed up.
-#
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBAV IMPORTED_TARGET
-    libavdevice
-    libavfilter
-    libavformat
-    libavcodec
-    libswresample
-    libswscale
-    libavutil
-)
+if(${cv_bridge_VERSION} GREATER "3.3.0")
+  add_definitions(-DUSE_CV_BRIDGE_HPP)
+endif()
 
 
 #
@@ -76,18 +65,18 @@ if(BUILD_TESTING)
   find_package(ament_cmake_cppcheck REQUIRED)
   find_package(ament_cmake_cpplint REQUIRED)
   find_package(ament_cmake_clang_format REQUIRED)
-#   find_package(ament_cmake_flake8 REQUIRED)
+  find_package(ament_cmake_flake8 REQUIRED)
   find_package(ament_cmake_lint_cmake REQUIRED)
-#   find_package(ament_cmake_pep257 REQUIRED)
+  find_package(ament_cmake_pep257 REQUIRED)
   find_package(ament_cmake_xmllint REQUIRED)
 
   ament_copyright()
   ament_cppcheck(LANGUAGE c++)
   ament_cpplint(FILTERS "-build/include,-runtime/indentation_namespace")
   ament_clang_format(CONFIG_FILE .clang-format)
-#  ament_flake8()
+  ament_flake8()
   ament_lint_cmake()
-#  ament_pep257()
+  ament_pep257()
   ament_xmllint()
 endif()
 

@@ -16,7 +16,11 @@
 #include <unistd.h>
 
 #include <chrono>
+#ifdef USE_CV_BRIDGE_HPP
 #include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.h>
+#endif
 #include <ffmpeg_image_transport/ffmpeg_decoder.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
 #include <ffmpeg_image_transport_tools/bag_processor.hpp>
