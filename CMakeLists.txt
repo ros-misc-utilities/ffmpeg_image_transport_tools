@@ -17,9 +17,6 @@ cmake_minimum_required(VERSION 3.22)
 project(ffmpeg_image_transport_tools)
 
 
-# for finding libav
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_ros REQUIRED)
@@ -36,6 +33,21 @@ foreach(pkg ${ament_dependencies})
   find_package(${pkg} REQUIRED)
 endforeach()
 
+#
+# find libav because the dependencies exported by ffmpeg_image_transport are
+# screwed up.
+#
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBAV IMPORTED_TARGET
+    libavdevice
+    libavfilter
+    libavformat
+    libavcodec
+    libswresample
+    libswscale
+    libavutil
+)
+
 
 #
 # -------- bag_to_file
@@ -44,8 +56,17 @@ add_executable(bag_to_file  src/bag_to_file.cpp)
 ament_target_dependencies(bag_to_file ${ament_dependencies})
 target_compile_features(bag_to_file PRIVATE cxx_std_17)
 
+#
+# -------- bag_to_frames
+#
+add_executable(bag_to_frames  src/bag_to_frames.cpp)
+ament_target_dependencies(bag_to_frames ${ament_dependencies})
+target_compile_features(bag_to_frames PRIVATE cxx_std_17)
+target_include_directories(bag_to_frames PRIVATE include)
+
 install(TARGETS
   bag_to_file
+  bag_to_frames
   DESTINATION lib/${PROJECT_NAME}/)
 
 if(BUILD_TESTING)

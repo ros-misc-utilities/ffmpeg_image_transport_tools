@@ -39,10 +39,6 @@ using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using Path = std::filesystem::path;
 using rclcpp::Time;
 using bag_time_t = rcutils_time_point_value_t;
-static rclcpp::Logger get_logger()
-{
-  return (rclcpp::get_logger("bag_to_file"));
-}
 
 static void convertToMP4(const std::string & raw, const std::string & mp4, double rate)
 {
