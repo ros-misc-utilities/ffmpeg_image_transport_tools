@@ -55,6 +55,7 @@ pkg_check_modules(LIBAV IMPORTED_TARGET
 add_executable(bag_to_file  src/bag_to_file.cpp)
 ament_target_dependencies(bag_to_file ${ament_dependencies})
 target_compile_features(bag_to_file PRIVATE cxx_std_17)
+target_include_directories(bag_to_file PRIVATE include)
 
 #
 # -------- bag_to_frames

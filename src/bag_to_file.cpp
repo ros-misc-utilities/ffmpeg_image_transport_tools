@@ -15,17 +15,13 @@
 
 #include <unistd.h>
 
-#include <chrono>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
+#include <ffmpeg_image_transport_tools/bag_processor.hpp>
+#include <ffmpeg_image_transport_tools/message_processor.hpp>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/serialization.hpp>
-#include <rclcpp/serialized_message.hpp>
-#include <rosbag2_cpp/reader.hpp>
-#include <rosbag2_cpp/readers/sequential_reader.hpp>
-#include <sensor_msgs/msg/image.hpp>
 #include <sstream>
 
 void usage()
@@ -36,8 +32,6 @@ void usage()
 }
 
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
-using Path = std::filesystem::path;
-using rclcpp::Time;
 using bag_time_t = rcutils_time_point_value_t;
 
 static void convertToMP4(const std::string & raw, const std::string & mp4, double rate)
@@ -54,45 +48,28 @@ static void convertToMP4(const std::string & raw, const std::string & mp4, doubl
   }
 }
 
-size_t processBag(
-  const std::string & out_file, const std::string & bag, const std::string & topic,
-  const std::string & time_stamp_file, bag_time_t start_time, bag_time_t end_time)
+class FileWriter : public ffmpeg_image_transport_tools::MessageProcessor<FFMPEGPacket>
 {
-  std::cout << "opening bag: " << bag << " topic: " << topic << std::endl;
-  rosbag2_cpp::Reader reader;
-  reader.open(bag);
-  rosbag2_storage::StorageFilter filter;
-  filter.topics.push_back(topic);
-  reader.set_filter(filter);
-  if (start_time != std::numeric_limits<bag_time_t>::min()) {
-    std::cout << "seeking for start time stamp: " << start_time << std::endl;
-    reader.seek(start_time);
+public:
+  FileWriter(const std::string & raw_file, const std::string & ts_file)
+  {
+    std::cout << "writing to raw file: " << raw_file << std::endl;
+    raw_file_ = std::ofstream(raw_file, std::ios::out | std::ios::binary);
+    ts_file_.open(ts_file);
   }
-  rclcpp::Serialization<FFMPEGPacket> serialization;
-  std::ofstream ts_file(time_stamp_file);
-  std::fstream raw_file;
-  raw_file.open(out_file, std::ios::app | std::ios::binary);
 
-  size_t packet_number{0};
-  while (reader.has_next()) {
-    auto msg = reader.read_next();
-    if (!msg || topic != msg->topic_name) {
-      continue;
-    }
-    rclcpp::SerializedMessage serialized_msg(*msg->serialized_data);
-    FFMPEGPacket::SharedPtr m(new FFMPEGPacket());
-    serialization.deserialize_message(&serialized_msg, m.get());
-    raw_file.write(reinterpret_cast<char *>(m->data.data()), m->data.size());
+  void process(uint64_t t, const FFMPEGPacket::ConstSharedPtr & m) final
+  {
     const auto t_header = Time(m->header.stamp).nanoseconds();
-    ts_file << packet_number << " " << Time(m->header.stamp).nanoseconds() << " "
-            << Time(msg->time_stamp).nanoseconds() << std::endl;
-    if (t_header > end_time) {
-      break;
-    }
-    packet_number++;
+    raw_file_.write(reinterpret_cast<const char *>(m->data.data()), m->data.size());
+    ts_file_ << packet_number_++ << " " << m->pts << " " << t_header << " " << t << std::endl;
   }
-  return (packet_number);
-}
+
+private:
+  std::ofstream raw_file_;
+  std::ofstream ts_file_;
+  size_t packet_number_{0};
+};
 
 int main(int argc, char ** argv)
 {
@@ -165,13 +142,11 @@ int main(int argc, char ** argv)
     return (-1);
   }
 
-  const auto start = std::chrono::high_resolution_clock::now();
   const std::string raw_file = out_file + ".h264";
-  size_t num_packets = processBag(raw_file, bag, topic, time_stamp_file, start_time, end_time);
+  const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
+  ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
+    bag, topic, topic_type, start_time, end_time);
+  FileWriter fw(raw_file, time_stamp_file);
+  bproc.process(&fw);
   convertToMP4(raw_file, out_file, rate);
-  const auto stop = std::chrono::high_resolution_clock::now();
-  auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-  std::cout << "packets processed: " << num_packets << std::endl;
-  std::cout << "total time for processing: " << total_duration.count() * 1e-6 << std::endl;
-  return (0);
 }

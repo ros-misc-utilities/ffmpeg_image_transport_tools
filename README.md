@@ -30,19 +30,35 @@ The ``bag_to_file`` merges the ffmpeg-generated packets from a rosbag into a fil
 ```
 bag_to_file -b input_bag -t topic -r rate [-o out_file] [-T timestamp_file] [-s start_time] [-e end_time]
 ```
-For example the following line produces a file ``video.mp4`` and ``timestamps.txt`` from a rosbag:
 
+The ``rate`` determines the fps used by ffmpeg when producing the
+output. The video is not transcoded, so what you get is the original
+stream, just in a mp4 container. To get correct playing speed the rate must
+match the rate at which the stream was originally recorded.
+
+The ``start_time`` and ``end_time`` is given in seconds since the
+epoch, like the times you see when using ``ros2 bag info``. 
+
+For example the following line produces a file ``video.mp4`` and ``timestamps.txt`` from a rosbag:
 ```
 ros2 run ffmpeg_image_transport_tools bag_to_file -t /cam1/image_raw/ffmpeg -r 40 -b ./my_rosbag/ -e 1710085164.466
 ```
-The ``end_time`` is given in seconds since the epoch.
+
 The ``timestamp.txt`` file has the following entries:
 ```
-# packet, header_stamp  recording_stamp
-0 1710085154473057750 1710085156001866724
-1 1710085155950467594 1710085156024209913
+# packet no, pts, header_stamp  recording_stamp
+0 0 1710085154473057750 1710085156001866724
+1 1 1710085155950467594 1710085156024209913
 ```
-A H264 packet corresponds to a frame so the packet number corresponds to frame number.
+A H264 packet typically corresponds to a frame so the packet number
+conincides with the  frame number.
+
+### Extract frames from a rosbag
+The ``bag_to_frames`` decodes the ffmpeg-generated packets from a rosbag into frames:
+```
+bag_to_frames -b input_bag -t topic [-o out_dir] [-d decoder][-T timestamp_file] [-s start_time] [-e end_time]
+```
+The frames are written to ``out_dir`` with the ros header stamps embedded in the file name. A suitable decoder is usually guessed from the encoding used in the packet, but you can specify a valid ffmpeg decoder by using the ``-d decoder`` option. For start and stop times and the timestamp file see ``bag_to_file``.
 
 ## License
 
