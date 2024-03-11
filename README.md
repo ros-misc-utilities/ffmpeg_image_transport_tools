@@ -2,9 +2,13 @@
 
 This repository hosts code for handling data streams produced by the [ffmpeg_image_transport](https://github.com/ros-misc-utilities/ffmpeg_image_transport.git).
 
-## Supported platforms
+## Supported systems
 
-Should run on ROS2 distributions Humble and later.
+Continuous integration is tested under Ubuntu with the following ROS2 distros:
+
+ [![Build Status](https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64&subject=Humble)](https://build.ros2.org/job/Hdev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64/)
+ [![Build Status](https://build.ros2.org/buildStatus/icon?job=Idev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64&subject=Iron)](https://build.ros2.org/job/Idev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64/)
+ [![Build Status](https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64&subject=Rolling)](https://build.ros2.org/job/Rdev__ffmpeg_image_transport_tools__ubuntu_jammy_amd64/)
 
 ## How to install
 
