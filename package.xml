@@ -8,14 +8,20 @@
   <license>Apache-2</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_cmake_auto</buildtool_depend>
+  <buildtool_depend>ament_cmake_ros</buildtool_depend>
+  <buildtool_depend>ament_cmake_clang_format</buildtool_depend>
+  <buildtool_depend>ros_environment</buildtool_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
-  <depend>rosbag2_transport</depend>
+  <depend>cv_bridge</depend>
+  <depend>rclcpp</depend>
   <depend>ffmpeg_image_transport</depend>
   <depend>ffmpeg_image_transport_msgs</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>sensor_msgs</depend>
+
   
   <export>
     <build_type>ament_cmake</build_type>

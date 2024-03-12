@@ -22,11 +22,11 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_ros REQUIRED)
 
 set(ament_dependencies
+  "cv_bridge"
+  "ffmpeg_image_transport"
+  "ffmpeg_image_transport_msgs"
   "rclcpp"
   "rosbag2_cpp"
-  "cv_bridge"
-  "ffmpeg_image_transport_msgs"
-  "ffmpeg_image_transport"
   "sensor_msgs")
 
 foreach(pkg ${ament_dependencies})
