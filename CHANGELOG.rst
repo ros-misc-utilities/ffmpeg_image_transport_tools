@@ -2,8 +2,8 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.0.1 (2024-04-17)
+------------------
 * fix build issues on rolling
 * Contributors: Bernd Pfrommer
 
