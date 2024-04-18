@@ -20,6 +20,7 @@
   <depend>ffmpeg_image_transport</depend>
   <depend>ffmpeg_image_transport_msgs</depend>
   <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
   <depend>sensor_msgs</depend>
 
   

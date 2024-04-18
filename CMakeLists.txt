@@ -27,14 +27,19 @@ set(ament_dependencies
   "ffmpeg_image_transport_msgs"
   "rclcpp"
   "rosbag2_cpp"
+  "rosbag2_storage"
   "sensor_msgs")
 
 foreach(pkg ${ament_dependencies})
   find_package(${pkg} REQUIRED)
 endforeach()
 
-if(${cv_bridge_VERSION} GREATER "3.3.0")
+if(${cv_bridge_VERSION} VERSION_GREATER "3.3.0")
   add_definitions(-DUSE_CV_BRIDGE_HPP)
+endif()
+
+if(${rosbag2_storage_VERSION} VERSION_GREATER_EQUAL "0.26.1")
+  add_definitions(-DUSE_ROSBAG2_STORAGE_RECV_TIME)
 endif()
 
 
