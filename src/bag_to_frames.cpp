@@ -21,7 +21,7 @@
 #else
 #include <cv_bridge/cv_bridge.h>
 #endif
-#include <ffmpeg_image_transport/ffmpeg_decoder.hpp>
+#include <ffmpeg_encoder_decoder/decoder.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
 #include <ffmpeg_image_transport_tools/bag_processor.hpp>
 #include <ffmpeg_image_transport_tools/message_processor.hpp>
@@ -40,12 +40,13 @@ void usage()
             << "[-T timestamp_file] [-s start_time] [-e end_time] " << std::endl;
 }
 
-using ffmpeg_image_transport::FFMPEGDecoder;
+using ffmpeg_encoder_decoder::Decoder;
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using sensor_msgs::msg::Image;
 using Path = std::filesystem::path;
 using rclcpp::Time;
 using bag_time_t = rcutils_time_point_value_t;
+using namespace std::placeholders;
 namespace fs = std::filesystem;
 
 class FrameWriter : public ffmpeg_image_transport_tools::MessageProcessor<FFMPEGPacket>
@@ -66,7 +67,7 @@ public:
     if (!decoder_.isInitialized()) {
       std::string dtype = decoder_type_;
       if (dtype.empty()) {
-        const auto & decoderMap = FFMPEGDecoder::getDefaultEncoderToDecoderMap();
+        const auto & decoderMap = ffmpeg_encoder_decoder::Decoder::getDefaultEncoderToDecoderMap();
         auto decTypeIt = decoderMap.find(m->encoding);
         if (decTypeIt == decoderMap.end()) {
           std::cerr << "unknown encoding: " << m->encoding << std::endl;
@@ -74,33 +75,34 @@ public:
         }
         dtype = decTypeIt->second;
       }
-
-      decoder_.initialize(m, std::bind(&FrameWriter::callback, this, std::placeholders::_1), dtype);
+      decoder_.initialize(m->encoding, std::bind(&FrameWriter::write, this, _1, _2), dtype);
     }
     if (!decoder_.isInitialized()) {
       std::cerr << "cannot init codec" << std::endl;
       throw(std::runtime_error("cannot init codec"));
     }
-    decoder_.decodePacket(m);
+    decoder_.decodePacket(
+      m->encoding, &m->data[0], m->data.size(), m->pts, m->header.frame_id, m->header.stamp);
+
     ts_file_ << packet_number_++ << " " << m->pts << " " << Time(m->header.stamp).nanoseconds()
              << " " << t << std::endl;
   }
 
 private:
-  std::string make_file_name(const uint64_t t)
+  std::string makeFileName(const uint64_t t) const
   {
     std::stringstream ss;
     ss << "frame_" << std::setfill('0') << std::setw(9) << t << ".jpg";
     return (Path(base_dir_) / Path(ss.str()));
   }
 
-  void callback(const Image::ConstSharedPtr & msg)
+  void write(const Image::ConstSharedPtr & msg, bool)
   {
     cv::Mat img;
 
     const uint64_t t = rclcpp::Time(msg->header.stamp).nanoseconds();
     cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8)->image.copyTo(img);
-    const auto fname = make_file_name(t);
+    const auto fname = makeFileName(t);
     cv::imwrite(fname, img);
     if (++frame_number_ % 100 == 0) {
       std::cout << "wrote " << frame_number_ << " frames." << std::endl;
@@ -112,7 +114,7 @@ private:
   std::string decoder_type_;
   std::ofstream ts_file_;
   size_t frame_number_{0};
-  FFMPEGDecoder decoder_;
+  Decoder decoder_;
   size_t packet_number_{0};
 };
 

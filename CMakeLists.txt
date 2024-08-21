@@ -23,7 +23,7 @@ find_package(ament_cmake_ros REQUIRED)
 
 set(ament_dependencies
   "cv_bridge"
-  "ffmpeg_image_transport"
+  "ffmpeg_encoder_decoder"
   "ffmpeg_image_transport_msgs"
   "rclcpp"
   "rosbag2_cpp"
