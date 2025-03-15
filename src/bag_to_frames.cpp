@@ -21,7 +21,7 @@
 #else
 #include <cv_bridge/cv_bridge.h>
 #endif
-#include <ffmpeg_image_transport/ffmpeg_decoder.hpp>
+#include <ffmpeg_encoder_decoder/decoder.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
 #include <ffmpeg_image_transport_tools/bag_processor.hpp>
 #include <ffmpeg_image_transport_tools/message_processor.hpp>
@@ -40,7 +40,7 @@ void usage()
             << "[-T timestamp_file] [-s start_time] [-e end_time] " << std::endl;
 }
 
-using ffmpeg_image_transport::FFMPEGDecoder;
+using ffmpeg_encoder_decoder::Decoder;
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using sensor_msgs::msg::Image;
 using Path = std::filesystem::path;
@@ -66,7 +66,7 @@ public:
     if (!decoder_.isInitialized()) {
       std::string dtype = decoder_type_;
       if (dtype.empty()) {
-        const auto & decoderMap = FFMPEGDecoder::getDefaultEncoderToDecoderMap();
+        const auto & decoderMap = Decoder::getDefaultEncoderToDecoderMap();
         auto decTypeIt = decoderMap.find(m->encoding);
         if (decTypeIt == decoderMap.end()) {
           std::cerr << "unknown encoding: " << m->encoding << std::endl;
@@ -75,13 +75,19 @@ public:
         dtype = decTypeIt->second;
       }
 
-      decoder_.initialize(m, std::bind(&FrameWriter::callback, this, std::placeholders::_1), dtype);
+      decoder_.initialize(
+        m->encoding, std::bind(&FrameWriter::callback, this, std::placeholders::_1), dtype);
     }
     if (!decoder_.isInitialized()) {
       std::cerr << "cannot init codec" << std::endl;
       throw(std::runtime_error("cannot init codec"));
     }
-    decoder_.decodePacket(m);
+    bool decodePacket(
+      const std::string & encoding, const uint8_t * data, size_t size, uint64_t pts,
+      const std::string & frame_id, const rclcpp::Time & stamp);
+
+    decoder_.decodePacket(
+      m->encoding, m->data.data(), m->data.size(), m->pts, m->header.frame_id, m->header.stamp);
     ts_file_ << packet_number_++ << " " << m->pts << " " << Time(m->header.stamp).nanoseconds()
              << " " << t << std::endl;
   }
@@ -112,7 +118,7 @@ private:
   std::string decoder_type_;
   std::ofstream ts_file_;
   size_t frame_number_{0};
-  FFMPEGDecoder decoder_;
+  Decoder decoder_;
   size_t packet_number_{0};
 };
 
