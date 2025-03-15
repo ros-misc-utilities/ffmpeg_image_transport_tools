@@ -17,7 +17,7 @@
 
   <depend>cv_bridge</depend>
   <depend>rclcpp</depend>
-  <depend>ffmpeg_image_transport</depend>
+  <depend>ffmpeg_encoder_decoder</depend>
   <depend>ffmpeg_image_transport_msgs</depend>
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_storage</depend>
