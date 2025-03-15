@@ -74,7 +74,11 @@ public:
       rclcpp::SerializedMessage serialized_msg(*msg->serialized_data);
       typename T::SharedPtr m(new T());
       serialization_.deserialize_message(&serialized_msg, m.get());
+#ifdef USE_ROSBAG2_STORAGE_RECV_TIME
+      const auto t = Time(msg->recv_timestamp).nanoseconds();
+#else
       const auto t = Time(msg->time_stamp).nanoseconds();
+#endif
       if (t > end_time_) {
         break;
       }
