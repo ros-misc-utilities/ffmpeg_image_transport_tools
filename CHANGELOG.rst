@@ -2,6 +2,12 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* use encoder/decoder instead of transport
+* fixed README status badges
+* Contributors: Bernd Pfrommer
+
 2.1.0 (2025-03-15)
 ------------------
 * fixed README status badges
