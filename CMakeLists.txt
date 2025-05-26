@@ -20,15 +20,13 @@ project(ffmpeg_image_transport_tools)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_ros REQUIRED)
-
-set(ament_dependencies
-  "cv_bridge"
-  "ffmpeg_encoder_decoder"
-  "ffmpeg_image_transport_msgs"
-  "rclcpp"
-  "rosbag2_cpp"
-  "rosbag2_storage"
-  "sensor_msgs")
+find_package(cv_bridge REQUIRED)
+find_package(ffmpeg_encoder_decoder REQUIRED)
+find_package(ffmpeg_image_transport_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rosbag2_cpp REQUIRED)
+find_package(rosbag2_storage REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 foreach(pkg ${ament_dependencies})
   find_package(${pkg} REQUIRED)
@@ -47,7 +45,15 @@ endif()
 # -------- bag_to_file
 #
 add_executable(bag_to_file  src/bag_to_file.cpp)
-ament_target_dependencies(bag_to_file ${ament_dependencies})
+target_link_libraries(bag_to_file
+  cv_bridge::cv_bridge
+  ffmpeg_encoder_decoder::ffmpeg_encoder_decoder
+  ${ffmpeg_image_transport_msgs_TARGETS}
+  rclcpp::rclcpp
+  rosbag2_cpp::rosbag2_cpp
+  rosbag2_storage::rosbag2_storage
+  ${sensor_msgs_TARGETS})
+
 target_compile_features(bag_to_file PRIVATE cxx_std_17)
 target_include_directories(bag_to_file PRIVATE include)
 
@@ -55,7 +61,15 @@ target_include_directories(bag_to_file PRIVATE include)
 # -------- bag_to_frames
 #
 add_executable(bag_to_frames  src/bag_to_frames.cpp)
-ament_target_dependencies(bag_to_frames ${ament_dependencies})
+target_link_libraries(bag_to_frames
+  cv_bridge::cv_bridge
+  ffmpeg_encoder_decoder::ffmpeg_encoder_decoder
+  ${ffmpeg_image_transport_msgs_TARGETS}
+  rclcpp::rclcpp
+  rosbag2_cpp::rosbag2_cpp
+  rosbag2_storage::rosbag2_storage
+  ${sensor_msgs_TARGETS})
+
 target_compile_features(bag_to_frames PRIVATE cxx_std_17)
 target_include_directories(bag_to_frames PRIVATE include)
 
