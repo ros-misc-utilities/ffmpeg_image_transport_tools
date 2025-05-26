@@ -2,6 +2,11 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* avoid ament_target_dependencies
+* Contributors: Bernd Pfrommer
+
 2.1.1 (2025-03-17)
 ------------------
 * use encoder/decoder instead of transport
