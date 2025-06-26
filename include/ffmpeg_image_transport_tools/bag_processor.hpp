@@ -25,6 +25,8 @@
 #include <rclcpp/serialized_message.hpp>
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_cpp/readers/sequential_reader.hpp>
+#include <set>
+#include <vector>
 
 using rclcpp::Time;
 using bag_time_t = rcutils_time_point_value_t;
@@ -36,24 +38,26 @@ class BagProcessor
 {
 public:
   BagProcessor(
-    const std::string & bag_name, const std::string & topic, const std::string & topic_type,
-    bag_time_t start_time, bag_time_t end_time)
-  : topic_(topic), start_time_(start_time), end_time_(end_time)
+    const std::string & bag_name, const std::vector<std::string> & topics,
+    const std::string & topic_type, bag_time_t start_time, bag_time_t end_time)
+  : start_time_(start_time), end_time_(end_time)
   {
     std::cout << "opening bag: " << bag_name << std::endl;
-    std::cout << "topic:       " << topic << std::endl;
     reader_.open(bag_name);
     const auto meta = reader_.get_all_topics_and_types();
-    const auto it = std::find_if(
-      meta.begin(), meta.end(), [topic, topic_type](const rosbag2_storage::TopicMetadata & m) {
-        return (m.name == topic && m.type == topic_type);
-      });
-    if (it == meta.end()) {
-      std::cerr << "topic " << topic << " with type " << topic_type << " not found!" << std::endl;
-      throw(std::runtime_error("topic not found!"));
+    for (const auto & topic : topics) {
+      topics_.insert(topic);
+      const auto it = std::find_if(
+        meta.begin(), meta.end(), [topic, topic_type](const rosbag2_storage::TopicMetadata & m) {
+          return (m.name == topic && m.type == topic_type);
+        });
+      if (it == meta.end()) {
+        std::cerr << "topic " << topic << " with type " << topic_type << " not found!" << std::endl;
+        throw(std::runtime_error("topic not found!"));
+      }
+      std::cout << "found topic: " << it->name << " with type: " << it->type << std::endl;
+      filter_.topics.push_back(topic);
     }
-
-    filter_.topics.push_back(topic);
     reader_.set_filter(filter_);
   }
 
@@ -68,7 +72,7 @@ public:
 
     while (reader_.has_next()) {
       auto msg = reader_.read_next();
-      if (!msg || topic_ != msg->topic_name) {
+      if (!msg || (topics_.find(msg->topic_name) == topics_.end())) {
         continue;
       }
       rclcpp::SerializedMessage serialized_msg(*msg->serialized_data);
@@ -82,7 +86,7 @@ public:
       if (t > end_time_) {
         break;
       }
-      mp->process(t, m);
+      mp->process(t, msg->topic_name, m);
       message_number++;
     }
     const auto stop = std::chrono::high_resolution_clock::now();
@@ -95,7 +99,7 @@ public:
 private:
   rosbag2_cpp::Reader reader_;
   rosbag2_storage::StorageFilter filter_;
-  std::string topic_;
+  std::set<std::string> topics_;
   bag_time_t start_time_;
   bag_time_t end_time_;
   rclcpp::Serialization<T> serialization_;

@@ -61,7 +61,7 @@ public:
     ts_file_.open(Path(base_dir_) / Path(ts_file));
   }
 
-  void process(uint64_t t, const FFMPEGPacket::ConstSharedPtr & m) final
+  void process(uint64_t t, const std::string &, const FFMPEGPacket::ConstSharedPtr & m) final
   {
     if (!decoder_.isInitialized()) {
       std::string dtype = decoder_type_;
@@ -69,7 +69,8 @@ public:
         const auto & decoderMap = Decoder::getDefaultEncoderToDecoderMap();
         auto decTypeIt = decoderMap.find(m->encoding);
         if (decTypeIt == decoderMap.end()) {
-          std::cerr << "unknown encoding: " << m->encoding << std::endl;
+          std::cerr << "unknown encoder: " << m->encoding << std::endl;
+          std::cerr << "must specify decoder!" << std::endl;
           throw(std::runtime_error("unknown encoding: " + m->encoding));
         }
         dtype = decTypeIt->second;
@@ -152,7 +153,7 @@ int main(int argc, char ** argv)
         }
         break;
       case 'o':
-        out_dir = atof(optarg);
+        out_dir = optarg;
         break;
       case 's':
         start_time = static_cast<bag_time_t>(atof(optarg) * 1e9);
@@ -187,10 +188,10 @@ int main(int argc, char ** argv)
     usage();
     return (-1);
   }
-
+  const std::vector<std::string> topics{topic};
   const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
   ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
-    bag, topic, topic_type, start_time, end_time);
+    bag, topics, topic_type, start_time, end_time);
   FrameWriter fw(decoder, out_dir, time_stamp_file);
   bproc.process(&fw);
 }

@@ -28,9 +28,9 @@ find_package(rosbag2_cpp REQUIRED)
 find_package(rosbag2_storage REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-foreach(pkg ${ament_dependencies})
-  find_package(${pkg} REQUIRED)
-endforeach()
+if(${rosbag2_cpp_VERSION_MAJOR} GREATER 0 OR ${rosbag2_cpp_VERSION_MINOR} GREATER 9)
+  add_definitions(-DUSE_NEW_ROSBAG_WRITE_INTERFACE)
+endif()
 
 if(${cv_bridge_VERSION} VERSION_GREATER "3.3.0")
   add_definitions(-DUSE_CV_BRIDGE_HPP)
@@ -73,9 +73,25 @@ target_link_libraries(bag_to_frames
 target_compile_features(bag_to_frames PRIVATE cxx_std_17)
 target_include_directories(bag_to_frames PRIVATE include)
 
+#
+# -------- compress_bag
+#
+add_executable(compress_bag  src/compress_bag.cpp)
+target_link_libraries(compress_bag
+  ffmpeg_encoder_decoder::ffmpeg_encoder_decoder
+  ${ffmpeg_image_transport_msgs_TARGETS}
+  rclcpp::rclcpp
+  rosbag2_cpp::rosbag2_cpp
+  rosbag2_storage::rosbag2_storage
+  ${sensor_msgs_TARGETS})
+target_compile_features(compress_bag PRIVATE cxx_std_17)
+target_include_directories(compress_bag PRIVATE include)
+
+
 install(TARGETS
   bag_to_file
   bag_to_frames
+  compress_bag
   DESTINATION lib/${PROJECT_NAME}/)
 
 if(BUILD_TESTING)

@@ -23,7 +23,8 @@ class MessageProcessor
 {
 public:
   virtual ~MessageProcessor() {}
-  virtual void process(uint64_t t, const typename T::ConstSharedPtr & msg) = 0;
+  virtual void process(
+    uint64_t t, const std::string & topic, const typename T::ConstSharedPtr & msg) = 0;
 };
 }  // namespace ffmpeg_image_transport_tools
 
