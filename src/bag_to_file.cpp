@@ -58,7 +58,7 @@ public:
     ts_file_.open(ts_file);
   }
 
-  void process(uint64_t t, const FFMPEGPacket::ConstSharedPtr & m) final
+  void process(uint64_t t, const std::string &, const FFMPEGPacket::ConstSharedPtr & m) final
   {
     const auto t_header = Time(m->header.stamp).nanoseconds();
     raw_file_.write(reinterpret_cast<const char *>(m->data.data()), m->data.size());
@@ -98,7 +98,7 @@ int main(int argc, char ** argv)
         }
         break;
       case 'o':
-        out_file = atof(optarg);
+        out_file = optarg;
         break;
       case 'r':
         rate = atof(optarg);
@@ -144,9 +144,9 @@ int main(int argc, char ** argv)
 
   const std::string raw_file = out_file + ".h264";
   const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
+  std::vector<std::string> topics{topic};
   ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
-    bag, topic, topic_type, start_time, end_time);
+    bag, topics, topic_type, start_time, end_time);
   FileWriter fw(raw_file, time_stamp_file);
   bproc.process(&fw);
-  convertToMP4(raw_file, out_file, rate);
 }
