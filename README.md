@@ -60,9 +60,16 @@ conincides with the  frame number.
 ### Extract frames from a rosbag
 The ``bag_to_frames`` decodes the ffmpeg-generated packets from a rosbag into frames:
 ```
-bag_to_frames -b input_bag -t topic [-o out_dir] [-d decoder][-T timestamp_file] [-s start_time] [-e end_time]
+ros2 run ffmpeg_image_transport_tools bag_to_frames -b input_bag -t topic [-o out_dir] [-d decoder][-T timestamp_file] [-s start_time] [-e end_time]
 ```
 The frames are written to ``out_dir`` with the ros header stamps embedded in the file name. A suitable decoder is usually guessed from the encoding used in the packet, but you can specify a valid ffmpeg decoder by using the ``-d decoder`` option. For start and stop times and the timestamp file see ``bag_to_file``.
+
+### Compress images in a rosbag
+Use ``compress_bag`` to encode a video stored as Image messages into FFMPEGPacket format.
+```
+ros2 run ffmpeg_image_transport_tools compress_bag  -i input_bag -o output_bag -t /first_image_topic -t /next_image_topic [-O encoder=hevc_vaapi] [-s start_time] [-e end_time]
+```
+There are various other encoder options you can set. Run with the ``-h`` option to see them all.
 
 ## License
 
