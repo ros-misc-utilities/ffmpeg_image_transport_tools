@@ -104,7 +104,9 @@ public:
     if (check_quality_) {
       std::string s = topic_;
       std::replace(s.begin(), s.end(), '/', '_');
+#ifdef DEBUG_ENCODING_ERROR
       histogram_file_.open(s + "_histogram.txt");
+#endif
     }
   }
 
