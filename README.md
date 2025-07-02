@@ -69,8 +69,15 @@ Use ``compress_bag`` to encode a video stored as Image messages into FFMPEGPacke
 ```
 ros2 run ffmpeg_image_transport_tools compress_bag  -i input_bag -o output_bag -t /first_image_topic -t /next_image_topic [-O encoder=hevc_vaapi] [-s start_time] [-e end_time]
 ```
-There are various other encoder options you can set. Run with the ``-h`` option to see them all.
-You can also check for the quality of the encoding be immediately decoding the packet with the ``-q`` switch (quality check). With h264 typically you'll get an average absolute difference error of about 2.0 (on a scale of 0 to255).
+There are various other encoder options you can set. For more info, run with the ``-h`` option.
+
+You can also check for the quality of the encoding be immediately decoding the encoded packet with the ``-q`` switch (quality check). This will slow down the conversion quite a bit though. The error printed out is computed by taking the absolute of the difference of original and encoded image.
+
+The following example will compress lossless and check that it is indeed lossless:
+```
+ ros2 run ffmpeg_image_transport_tools compress_bag -i <input_bag_name> -o <output_bag_name> -t <topic_name> -O encoder=libx264rgb -O crf=0 -O decoder=h264 -q
+```
+
 
 ## License
 

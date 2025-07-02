@@ -31,10 +31,23 @@
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_cpp/writers/sequential_writer.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#ifdef USE_CV_BRIDGE_HPP
+#if __has_include(<cv_bridge/cv_bridge.hpp>)
 #include <cv_bridge/cv_bridge.hpp>
 #else
 #include <cv_bridge/cv_bridge.h>
+#endif
+
+#define DEBUG_ERROR_HISTOGRAMS
+#define DEBUG_ERROR_DETAILS
+#define DEBUG_WRITE_IMAGES
+
+#ifdef DEBUG_WRITE_IMAGES
+std::string make_file_name(const std::string & prefix, const size_t n)
+{
+  std::stringstream ss;
+  ss << prefix << std::setfill('0') << std::setw(4) << n << ".png";
+  return (ss.str());
+}
 #endif
 
 void usage()
@@ -48,6 +61,7 @@ void usage()
             << "    encoder=<name_of_encoder>, defaults to libx264" << std::endl
             << "    preset" << std::endl
             << "    tune" << std::endl
+            << "    profile" << std::endl
             << "    delay" << std::endl
             << "    crf" << std::endl
             << "    pixel_format" << std::endl
@@ -61,8 +75,6 @@ using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using sensor_msgs::msg::Image;
 using bag_time_t = rcutils_time_point_value_t;
 using namespace std::placeholders;
-
-// #define DEBUG_ENCODING_ERROR
 
 class Compressor;
 class EncoderDecoder
@@ -89,6 +101,8 @@ public:
         encoder_.setCRF(v);
       } else if (n == "pixel_format") {
         encoder_.setPixelFormat(v);
+      } else if (n == "profile") {
+        encoder_.setProfile(v);
       } else if (n == "qmax") {
         encoder_.setQMax(std::stoi(v));
       } else if (n == "bit_rate") {
@@ -99,19 +113,26 @@ public:
         encoder_.setMeasurePerformance(static_cast<bool>(std::stoi(v)));
       } else {
         std::cerr << "unknown parameter: " << n << std::endl;
+        throw(std::runtime_error("unknown parameter in EncoderDecoder options: " + n));
       }
     }
     if (check_quality_) {
       std::string s = topic_;
       std::replace(s.begin(), s.end(), '/', '_');
-#ifdef DEBUG_ENCODING_ERROR
+#ifdef DEBUG_ERROR_HISTOGRAMS
       histogram_file_.open(s + "_histogram.txt");
 #endif
     }
   }
 
-  void encode(uint64_t t, const Image::ConstSharedPtr & m)
+  void encode(uint64_t t, const Image::ConstSharedPtr & msg_color)
   {
+#ifdef ENCODE_AS_GREY_FOR_DEBUG
+    auto cv_grey_img = cv_bridge::toCvCopy(msg_color, sensor_msgs::image_encodings::MONO8);
+    auto m = cv_grey_img->toImageMsg();
+#else
+    auto & m = msg_color;
+#endif
     stamp_to_image_.insert({rclcpp::Time(m->header.stamp), m});
     while (stamp_to_image_.size() > max_num_frames_to_keep_) {
       stamp_to_image_.erase(stamp_to_image_.begin());
@@ -170,10 +191,12 @@ public:
     cv::absdiff(img_original, img_decoded, diff);
     cv::Scalar mean_diff = cv::mean(diff);
     total_mean_diff_ += mean_diff[0] + mean_diff[1] + mean_diff[2];
-#ifdef DEBUG_ENCODING_ERROR
+
+#if defined(DEBUG_ERROR_HISTOGRAMS) || defined(DEBUG_ERROR_DETAILS)
     std::vector<cv::Mat> channels;
     cv::split(diff, channels);
-    std::cout << std::setw(5) << num_frames_decoded_ << " error: ";
+#endif
+#ifdef DEBUG_ERROR_HISTOGRAMS
     for (int channel = 0; channel < img_original.channels(); ++channel) {
       const int histSize = 256;
       const float range[] = {0, 256};
@@ -182,17 +205,14 @@ public:
       cv::calcHist(
         &channels[channel], 1, 0, cv::Mat() /* mask */, hist, 1, &histSize, histRange,
         true /*uniform*/, false /*accumulate*/);
-      std::cout << " " << std::fixed << std::setw(7) << std::setprecision(3) << mean_diff[channel];
       for (int i = 0; i < histSize; ++i) {
         histogram_file_ << " " << hist.at<float>(i);
       }
       histogram_file_ << std::endl;
     }
-    std::cout << std::endl;
 #endif
-// #define DEBUG_WRITE_IMAGES
-#ifdef DEBUG_WRITE_IMAGES
-    std::cout << num_frames_decoded_;
+#ifdef DEBUG_ERROR_DETAILS
+    std::cout << std::setw(5) << num_frames_decoded_ << " error: ";
     for (int channel = 0; channel < 3; ++channel) {
       double min_val, max_val;
       cv::Point min_loc, max_loc;
@@ -201,8 +221,12 @@ public:
                 << "," << max_loc.y << ")";
     }
     std::cout << std::endl;
-    cv::imwrite(std::to_string(num_frames_decoded_) + "_orig.png", img_original);
-    cv::imwrite(std::to_string(num_frames_decoded_) + "_dec.png", img_decoded);
+#endif
+
+#ifdef DEBUG_WRITE_IMAGES
+    const auto ts = it->first.nanoseconds();
+    cv::imwrite(make_file_name("orig_", ts), img_original);
+    cv::imwrite(make_file_name("dec_", ts), img_decoded);
 #endif
     num_frames_decoded_++;
   }
@@ -339,6 +363,7 @@ public:
 #else
     writer_->write(*smsg, topic, topicType, t);
 #endif
+    num_msgs_written_++;
   }
 
 private:
@@ -349,6 +374,7 @@ private:
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
   std::string out_bag_;
   bool check_quality_{false};
+  size_t num_msgs_written_{0};
 };
 
 void EncoderDecoder::packetReady(

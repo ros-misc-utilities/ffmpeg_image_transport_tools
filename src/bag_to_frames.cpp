@@ -37,9 +37,16 @@ void usage()
 {
   std::cout << "usage:" << std::endl;
   std::cout << "bag_to_frames -b input_bag -t topic [-o out_dir] [-d decoder]"
-            << "[-T timestamp_file] [-s start_time] [-e end_time] " << std::endl;
+            << " [-f file_type] [-T timestamp_file] [-s start_time]" << " [-e end_time] "
+            << std::endl;
 }
-
+//
+// lossless encoding:
+// ffmpeg -framerate 1 -pattern_type glob -i 'orig/*.png'
+// -c:v libx264rgb -preset slow -crf 0 out.mp4 ;
+// ffmpeg -i out.mp4  -r 1/1 new/$filename%03d.png
+//
+// -c:v h264_nvenc -preset:v p7 -tune:v lossless -profile:v high444p
 using ffmpeg_encoder_decoder::Decoder;
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using sensor_msgs::msg::Image;
@@ -52,8 +59,9 @@ class FrameWriter : public ffmpeg_image_transport_tools::MessageProcessor<FFMPEG
 {
 public:
   FrameWriter(
-    const std::string & decoder, const std::string & base_dir, const std::string & ts_file)
-  : base_dir_(base_dir), decoder_type_(decoder)
+    const std::vector<std::string> & decoders, const std::string & base_dir,
+    const std::string & ts_file, const std::string & output_file_type = "jpg")
+  : base_dir_(base_dir), decoder_names_(decoders), output_file_type_(output_file_type)
   {
     if (!fs::is_directory(base_dir_) || !fs::exists(base_dir_)) {
       fs::create_directory(base_dir_);
@@ -64,31 +72,49 @@ public:
   void process(uint64_t t, const std::string &, const FFMPEGPacket::ConstSharedPtr & m) final
   {
     if (!decoder_.isInitialized()) {
-      std::string dtype = decoder_type_;
-      if (dtype.empty()) {
-        const auto & decoderMap = Decoder::getDefaultEncoderToDecoderMap();
-        auto decTypeIt = decoderMap.find(m->encoding);
-        if (decTypeIt == decoderMap.end()) {
-          std::cerr << "unknown encoder: " << m->encoding << std::endl;
-          std::cerr << "must specify decoder!" << std::endl;
-          throw(std::runtime_error("unknown encoding: " + m->encoding));
+      if (firstTime_) {
+        firstTime_ = false;
+        if (decoder_names_.empty()) {
+          decoder_names_ = Decoder::findDecoders(m->encoding);
         }
-        dtype = decTypeIt->second;
       }
-
-      decoder_.initialize(
-        m->encoding, std::bind(&FrameWriter::callback, this, std::placeholders::_1), dtype);
+      while (!decoder_names_.empty()) {
+        const auto name = *decoder_names_.begin();
+        decoder_names_.erase(decoder_names_.begin());  // mark as used
+        if (!decoder_.initialize(
+              m->encoding, std::bind(&FrameWriter::callback, this, std::placeholders::_1), name)) {
+          std::cerr << "cannot initialize decoder " << name << " for encoding: " << m->encoding
+                    << std::endl;
+        } else {
+          waitForKeyFrame_ = true;
+          break;
+        }
+      }
+      if (!decoder_.isInitialized()) {
+        std::cerr << "no valid decoder found for encoding: " << m->encoding << std::endl;
+        throw(std::runtime_error("cannot init codec"));
+      }
     }
-    if (!decoder_.isInitialized()) {
-      std::cerr << "cannot init codec" << std::endl;
-      throw(std::runtime_error("cannot init codec"));
+    if (waitForKeyFrame_) {
+      if (!(m->flags & 0x0001)) {
+        if (!waitingForKeyFrame_) {
+          std::cout << "skipping non-key frames starting with pts: " << m->pts << std::endl;
+          waitingForKeyFrame_ = true;
+        }
+        return;
+      }
+      if (waitingForKeyFrame_) {
+        std::cout << "skipped non-key frames until pts: " << m->pts << std::endl;
+        waitingForKeyFrame_ = false;
+      }
+      waitForKeyFrame_ = false;
     }
-    bool decodePacket(
-      const std::string & encoding, const uint8_t * data, size_t size, uint64_t pts,
-      const std::string & frame_id, const rclcpp::Time & stamp);
 
-    decoder_.decodePacket(
+    const bool ret = decoder_.decodePacket(
       m->encoding, m->data.data(), m->data.size(), m->pts, m->header.frame_id, m->header.stamp);
+    if (!ret) {
+      decoder_.reset();
+    }
     ts_file_ << packet_number_++ << " " << m->pts << " " << Time(m->header.stamp).nanoseconds()
              << " " << t << std::endl;
   }
@@ -97,7 +123,7 @@ private:
   std::string make_file_name(const uint64_t t)
   {
     std::stringstream ss;
-    ss << "frame_" << std::setfill('0') << std::setw(9) << t << ".jpg";
+    ss << "frame_" << std::setfill('0') << std::setw(9) << t << "." << output_file_type_;
     return (Path(base_dir_) / Path(ss.str()));
   }
 
@@ -116,11 +142,15 @@ private:
 
 private:
   std::string base_dir_;
-  std::string decoder_type_;
+  std::vector<std::string> decoder_names_;
   std::ofstream ts_file_;
   size_t frame_number_{0};
   Decoder decoder_;
   size_t packet_number_{0};
+  std::string output_file_type_{"jpg"};
+  bool firstTime_{true};
+  bool waitForKeyFrame_{false};
+  bool waitingForKeyFrame_{false};
 };
 
 int main(int argc, char ** argv)
@@ -131,17 +161,21 @@ int main(int argc, char ** argv)
   std::string topic;
   std::string time_stamp_file = "timestamps.txt";
   std::string decoder;
+  std::string file_type = "jpg";
 
   bag_time_t start_time = std::numeric_limits<bag_time_t>::min();
   bag_time_t end_time = std::numeric_limits<bag_time_t>::max();
 
-  while ((opt = getopt(argc, argv, "b:d:e:o:s:t:h")) != -1) {
+  while ((opt = getopt(argc, argv, "b:d:e:o:s:f:t:h")) != -1) {
     switch (opt) {
       case 'b':
         bag = optarg;
         break;
       case 'd':
         decoder = optarg;
+        break;
+      case 'f':
+        file_type = optarg;
         break;
       case 'e':
         end_time = static_cast<bag_time_t>(atof(optarg) * 1e9);
@@ -192,6 +226,10 @@ int main(int argc, char ** argv)
   const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
   ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
     bag, topics, topic_type, start_time, end_time);
-  FrameWriter fw(decoder, out_dir, time_stamp_file);
+  std::vector<std::string> decoders;
+  if (!decoder.empty()) {
+    decoders.push_back(decoder);
+  }
+  FrameWriter fw(decoders, out_dir, time_stamp_file, file_type);
   bproc.process(&fw);
 }
