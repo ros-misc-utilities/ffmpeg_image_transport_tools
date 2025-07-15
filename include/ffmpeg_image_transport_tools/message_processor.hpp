@@ -16,6 +16,10 @@
 #ifndef FFMPEG_IMAGE_TRANSPORT_TOOLS__MESSAGE_PROCESSOR_HPP_
 #define FFMPEG_IMAGE_TRANSPORT_TOOLS__MESSAGE_PROCESSOR_HPP_
 
+#include <rcutils/time.h>
+
+#include <rclcpp/rclcpp.hpp>
+
 namespace ffmpeg_image_transport_tools
 {
 template <typename T>
@@ -24,7 +28,8 @@ class MessageProcessor
 public:
   virtual ~MessageProcessor() {}
   virtual void process(
-    uint64_t t, const std::string & topic, const typename T::ConstSharedPtr & msg) = 0;
+    rcutils_time_point_value_t recv_time, rcutils_time_point_value_t send_time,
+    const std::string & topic, const typename T::ConstSharedPtr & msg) = 0;
 };
 }  // namespace ffmpeg_image_transport_tools
 
