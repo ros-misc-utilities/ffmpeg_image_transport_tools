@@ -37,9 +37,9 @@
 #include <cv_bridge/cv_bridge.h>
 #endif
 
-#define DEBUG_ERROR_HISTOGRAMS
-#define DEBUG_ERROR_DETAILS
-#define DEBUG_WRITE_IMAGES
+// #define DEBUG_ERROR_HISTOGRAMS
+// #define DEBUG_ERROR_DETAILS
+// #define DEBUG_WRITE_IMAGES
 
 #ifdef DEBUG_WRITE_IMAGES
 std::string make_file_name(const std::string & prefix, const size_t n)
@@ -69,6 +69,8 @@ void usage()
             << "    bit_rate" << std::endl
             << "    gop_size" << std::endl
             << "    measure_performance" << std::endl;
+  std::cout << " -O decoder options:" << std::endl
+            << "    decoder=<name_of_decoder> (no default, use e.g. h264)" << std::endl;
 }
 
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
@@ -77,6 +79,19 @@ using bag_time_t = rcutils_time_point_value_t;
 using namespace std::placeholders;
 
 class Compressor;
+
+struct FrameInfo
+{
+  FrameInfo(
+    const Image::ConstSharedPtr & m, rcutils_time_point_value_t t_r, rcutils_time_point_value_t t_s)
+  : msg(m), t_recv(t_r), t_send(t_s)
+  {
+  }
+  Image::ConstSharedPtr msg;
+  rcutils_time_point_value_t t_recv;
+  rcutils_time_point_value_t t_send;
+};
+
 class EncoderDecoder
 {
 public:
@@ -125,7 +140,9 @@ public:
     }
   }
 
-  void encode(uint64_t t, const Image::ConstSharedPtr & msg_color)
+  void encode(
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send,
+    const Image::ConstSharedPtr & msg_color)
   {
 #ifdef ENCODE_AS_GREY_FOR_DEBUG
     auto cv_grey_img = cv_bridge::toCvCopy(msg_color, sensor_msgs::image_encodings::MONO8);
@@ -133,7 +150,8 @@ public:
 #else
     auto & m = msg_color;
 #endif
-    stamp_to_image_.insert({rclcpp::Time(m->header.stamp), m});
+    frame_id_ = m->header.frame_id;
+    stamp_to_image_.insert({rclcpp::Time(m->header.stamp), FrameInfo(m, t_recv, t_send)});
     while (stamp_to_image_.size() > max_num_frames_to_keep_) {
       stamp_to_image_.erase(stamp_to_image_.begin());
     }
@@ -146,7 +164,7 @@ public:
         throw(std::runtime_error("cannot init encoder!"));
       }
     }
-    last_recording_time_ = t;
+    last_recording_time_ = rclcpp::Time(t_recv).nanoseconds();
     encoder_.encodeImage(msg);
     total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
                                        std::chrono::high_resolution_clock::now() - t0)
@@ -157,13 +175,8 @@ public:
   // this method only called for quality check
   void decodedFrameReady(const Image::ConstSharedPtr & msg, bool isKeyFrame)
   {
-    const auto it = stamp_to_image_.find(rclcpp::Time(msg->header.stamp));
-    if (it == stamp_to_image_.end()) {
-      std::cerr << "decoded frame with stamp " << rclcpp::Time(msg->header.stamp).nanoseconds()
-                << " not found in stamp_to_image_ map!" << std::endl;
-      throw(std::runtime_error("decoded frame not found in stamp_to_image_ map!"));
-    }
-    const auto & orig_msg = it->second;
+    const auto & frame_info = getFrameInfo(rclcpp::Time(msg->header.stamp));
+    const auto & orig_msg = frame_info.msg;
 
     if (msg->width != orig_msg->width || msg->height != orig_msg->height) {
       std::cerr << "decoded image size mismatch! Decoded: " << msg->width << "x" << msg->height
@@ -224,7 +237,7 @@ public:
 #endif
 
 #ifdef DEBUG_WRITE_IMAGES
-    const auto ts = it->first.nanoseconds();
+    const auto ts = rclcpp::Time(msg->header.stamp).nanoseconds();
     cv::imwrite(make_file_name("orig_", ts), img_original);
     cv::imwrite(make_file_name("dec_", ts), img_decoded);
 #endif
@@ -237,10 +250,21 @@ public:
 
   void flush()
   {
-    if (msg_) {
-      encoder_.flush(msg_->header);
-    }
+    std::cout << "flushing encoder for topic: " << topic_ << std::endl;
+    encoder_.flush(frame_id_);
   }
+
+  const FrameInfo & getFrameInfo(const rclcpp::Time & t)
+  {
+    const auto it = stamp_to_image_.find(t);
+    if (it == stamp_to_image_.end()) {
+      std::cerr << "decoded frame with stamp " << t.nanoseconds()
+                << " not found in stamp_to_image_ map!" << std::endl;
+      throw(std::runtime_error("decoded frame not found in stamp_to_image_ map!"));
+    }
+    return (it->second);
+  }
+
   double getEncodingTime() const
   {
     return static_cast<double>(
@@ -269,6 +293,7 @@ public:
 private:
   Compressor * compressor_;
   std::string topic_;
+  std::string frame_id_;
   std::shared_ptr<FFMPEGPacket> msg_;
   ffmpeg_encoder_decoder::Encoder encoder_;
   ffmpeg_encoder_decoder::Decoder decoder_;
@@ -281,7 +306,7 @@ private:
   std::string decoder_type_;
   bool check_quality_{false};  // check quality of encoded frames
   size_t max_num_frames_to_keep_{0};
-  std::map<rclcpp::Time, Image::ConstSharedPtr> stamp_to_image_;
+  std::map<rclcpp::Time, FrameInfo> stamp_to_image_;
   std::ofstream histogram_file_;
   double total_mean_diff_{0.0};  // sum of mean differences for all decoded frame
 };
@@ -339,29 +364,32 @@ public:
     }
   }
 
-  void process(uint64_t t, const std::string & topic, const Image::ConstSharedPtr & m) final
+  void process(
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send, const std::string & topic,
+    const Image::ConstSharedPtr & m) final
   {
     auto it = encoderdecoders_.find(topic);
     if (it == encoderdecoders_.end()) {
       throw(std::runtime_error("topic " + topic + " not found in encoders!"));
     }
     const auto t0 = std::chrono::high_resolution_clock::now();
-    it->second->encode(t, m);
+    it->second->encode(t_recv, t_send, m);
     frame_number_++;
   }
 
   template <typename MsgT>
   void write(
-    const rclcpp::Time & t, const typename MsgT::ConstSharedPtr & m, const std::string & topic)
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send,
+    const typename MsgT::ConstSharedPtr & m, const std::string & topic)
   {
     auto smsg = std::make_shared<rclcpp::SerializedMessage>();
     rclcpp::Serialization<MsgT> serialization;
     serialization.serialize_message(m.get(), smsg.get());
     const std::string topicType = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
 #ifdef USE_NEW_ROSBAG_WRITE_INTERFACE
-    writer_->write(smsg, topic, topicType, t);
+    writer_->write(smsg, topic, topicType, t_recv, t_send);
 #else
-    writer_->write(*smsg, topic, topicType, t);
+    writer_->write(*smsg, topic, topicType, t_recv);
 #endif
     num_msgs_written_++;
   }
@@ -381,6 +409,8 @@ void EncoderDecoder::packetReady(
   const std::string & frame_id, const rclcpp::Time & stamp, const std::string & codec,
   uint32_t width, uint32_t height, uint64_t pts, uint8_t flags, uint8_t * data, size_t sz)
 {
+  const auto fr = getFrameInfo(stamp);
+
   const auto t0 = std::chrono::high_resolution_clock::now();
   msg_ = std::make_shared<FFMPEGPacket>();
   msg_->header.frame_id = frame_id;
@@ -392,8 +422,8 @@ void EncoderDecoder::packetReady(
   msg_->flags = flags;
   msg_->data.resize(sz);
   memcpy(msg_->data.data(), data, sz);
-  compressor_->write<FFMPEGPacket>(
-    rclcpp::Time(last_recording_time_, RCL_SYSTEM_TIME), msg_, topic_);
+
+  compressor_->write<FFMPEGPacket>(fr.t_recv, fr.t_send, msg_, topic_);
   total_time_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::high_resolution_clock::now() - t0)
                          .count();

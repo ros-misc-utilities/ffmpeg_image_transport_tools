@@ -58,11 +58,14 @@ public:
     ts_file_.open(ts_file);
   }
 
-  void process(uint64_t t, const std::string &, const FFMPEGPacket::ConstSharedPtr & m) final
+  void process(
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send, const std::string &,
+    const FFMPEGPacket::ConstSharedPtr & m) final
   {
     const auto t_header = Time(m->header.stamp).nanoseconds();
     raw_file_.write(reinterpret_cast<const char *>(m->data.data()), m->data.size());
-    ts_file_ << packet_number_++ << " " << m->pts << " " << t_header << " " << t << std::endl;
+    ts_file_ << packet_number_++ << " " << m->pts << " " << t_header << " "
+             << rclcpp::Time(t_recv).nanoseconds() << std::endl;
   }
 
 private:

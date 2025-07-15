@@ -21,6 +21,7 @@
   <depend>libopencv-imgproc-dev</depend>
   <depend>rosbag2_cpp</depend>
   <depend>rclcpp</depend>
+  <depend>rcutils</depend>
   <depend>rosbag2_storage</depend>
   <depend>sensor_msgs</depend>
 

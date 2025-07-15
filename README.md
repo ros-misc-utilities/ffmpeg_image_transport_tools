@@ -71,6 +71,8 @@ ros2 run ffmpeg_image_transport_tools compress_bag  -i input_bag -o output_bag -
 ```
 There are various other encoder options you can set. For more info, run with the ``-h`` option.
 
+NOTE: the header timestamps for each topic must be unique, i.e. images on the same topic cannot have identical time stamps!
+
 You can also check for the quality of the encoding be immediately decoding the encoded packet with the ``-q`` switch (quality check). This will slow down the conversion quite a bit though. The error printed out is computed by taking the absolute of the difference of original and encoded image.
 
 The following example will compress lossless and check that it is indeed lossless:

@@ -69,7 +69,9 @@ public:
     ts_file_.open(Path(base_dir_) / Path(ts_file));
   }
 
-  void process(uint64_t t, const std::string &, const FFMPEGPacket::ConstSharedPtr & m) final
+  void process(
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send, const std::string &,
+    const FFMPEGPacket::ConstSharedPtr & m) final
   {
     if (!decoder_.isInitialized()) {
       if (firstTime_) {
@@ -116,7 +118,7 @@ public:
       decoder_.reset();
     }
     ts_file_ << packet_number_++ << " " << m->pts << " " << Time(m->header.stamp).nanoseconds()
-             << " " << t << std::endl;
+             << " " << rclcpp::Time(t_recv).nanoseconds() << std::endl;
   }
 
 private:

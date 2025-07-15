@@ -86,13 +86,15 @@ public:
       if (t > end_time_) {
         break;
       }
-      mp->process(t, msg->topic_name, m);
+#ifdef USE_ROSBAG2_STORAGE_RECV_TIME
+      mp->process(msg->recv_timestamp, msg->send_timestamp, msg->topic_name, m);
+#else
+      mp->process(msg->time_stamp, msg->time_stamp, msg->topic_name, m);
+#endif
       message_number++;
     }
     const auto stop = std::chrono::high_resolution_clock::now();
     auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-    std::cout << "messages processed: " << message_number << std::endl;
-    std::cout << "total time for processing: " << total_duration.count() * 1e-6 << std::endl;
     return (message_number);
   }
 
