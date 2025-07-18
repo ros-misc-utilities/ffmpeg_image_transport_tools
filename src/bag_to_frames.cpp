@@ -70,7 +70,7 @@ public:
   }
 
   void process(
-    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send, const std::string &,
+    rcutils_time_point_value_t t_recv, rcutils_time_point_value_t, const std::string &,
     const FFMPEGPacket::ConstSharedPtr & m) final
   {
     if (!decoder_.isInitialized()) {

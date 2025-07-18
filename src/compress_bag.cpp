@@ -38,8 +38,8 @@
 #endif
 
 // #define DEBUG_ERROR_HISTOGRAMS
-// #define DEBUG_ERROR_DETAILS
-// #define DEBUG_WRITE_IMAGES
+#define DEBUG_ERROR_DETAILS
+#define DEBUG_WRITE_IMAGES
 
 #ifdef DEBUG_WRITE_IMAGES
 std::string make_file_name(const std::string & prefix, const size_t n)
@@ -64,7 +64,8 @@ void usage()
             << "    profile" << std::endl
             << "    delay" << std::endl
             << "    crf" << std::endl
-            << "    pixel_format" << std::endl
+            << "    pixel_format (used before encoding)" << std::endl
+            << "    encoder_cv_bridge_target_format" << std::endl
             << "    qmax (quantization error, value of 1 is best quality)" << std::endl
             << "    bit_rate" << std::endl
             << "    gop_size" << std::endl
@@ -106,18 +107,17 @@ public:
         std::cout << topic_ << " encoding with " << v << std::endl;
       } else if (n == "decoder") {
         decoder_type_ = v;
-      } else if (n == "preset") {
-        encoder_.setPreset(v);
-      } else if (n == "tune") {
-        encoder_.setTune(v);
-      } else if (n == "delay") {
-        encoder_.setDelay(v);
-      } else if (n == "crf") {
-        encoder_.setCRF(v);
-      } else if (n == "pixel_format") {
-        encoder_.setPixelFormat(v);
-      } else if (n == "profile") {
-        encoder_.setProfile(v);
+      } else if (n == "encoder_pixel_format") {
+        std::cout << "libav encoder uses pixel format to " << v << std::endl;
+        encoder_.setAVSourcePixelFormat(v);
+      } else if (n == "encoder_cv_bridge_target_format") {
+        encoder_.setCVBridgeTargetFormat(v);
+      } else if (n == "decoder_message_output_format") {
+        decoder_.setOutputMessageEncoding(v);
+        std::cout << "decoder uses output format: " << v << std::endl;
+      } else if (n == "quality_message_pixel_format") {
+        std::cout << "for quality check, uses pixel format: " << v << std::endl;
+        qualityMessagePixelFormat_ = v;
       } else if (n == "qmax") {
         encoder_.setQMax(std::stoi(v));
       } else if (n == "bit_rate") {
@@ -127,10 +127,10 @@ public:
       } else if (n == "measure_performance") {
         encoder_.setMeasurePerformance(static_cast<bool>(std::stoi(v)));
       } else {
-        std::cerr << "unknown parameter: " << n << std::endl;
-        throw(std::runtime_error("unknown parameter in EncoderDecoder options: " + n));
+        encoder_.addAVOption(n, v);
       }
     }
+
     if (check_quality_) {
       std::string s = topic_;
       std::replace(s.begin(), s.end(), '/', '_');
@@ -139,7 +139,6 @@ public:
 #endif
     }
   }
-
   void encode(
     rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send,
     const Image::ConstSharedPtr & msg_color)
@@ -155,7 +154,6 @@ public:
     while (stamp_to_image_.size() > max_num_frames_to_keep_) {
       stamp_to_image_.erase(stamp_to_image_.begin());
     }
-    const auto t0 = std::chrono::high_resolution_clock::now();
     const auto & msg = *m;
     if (!encoder_.isInitialized()) {
       if (!encoder_.initialize(
@@ -164,7 +162,7 @@ public:
         throw(std::runtime_error("cannot init encoder!"));
       }
     }
-    last_recording_time_ = rclcpp::Time(t_recv).nanoseconds();
+    const auto t0 = std::chrono::high_resolution_clock::now();
     encoder_.encodeImage(msg);
     total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
                                        std::chrono::high_resolution_clock::now() - t0)
@@ -173,8 +171,11 @@ public:
   }
 
   // this method only called for quality check
-  void decodedFrameReady(const Image::ConstSharedPtr & msg, bool isKeyFrame)
+  void decodedFrameReady(const Image::ConstSharedPtr & msg, bool /* isKeyFrame */)
   {
+    std::cout << "decoded frame: " << msg->encoding << " " << msg->width << "x" << msg->height
+              << " sz: " << msg->data.size() << " per line: " << msg->data.size() / msg->height
+              << " step: " << msg->step << std::endl;
     const auto & frame_info = getFrameInfo(rclcpp::Time(msg->header.stamp));
     const auto & orig_msg = frame_info.msg;
 
@@ -184,16 +185,21 @@ public:
       throw(std::runtime_error("decoded image size does not match original!"));
     }
 
-    auto decoded_image = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
+    auto decoded_image = cv_bridge::toCvShare(msg, qualityMessagePixelFormat_);
     if (!decoded_image) {
       throw(std::runtime_error("cannot convert image to cv::Mat!"));
     }
-    auto original_image = cv_bridge::toCvShare(orig_msg, sensor_msgs::image_encodings::BGR8);
+    auto original_image = cv_bridge::toCvShare(orig_msg, qualityMessagePixelFormat_);
     if (!original_image) {
       throw(std::runtime_error("cannot convert image to cv::Mat!"));
     }
     const auto & img_original = original_image->image;
     const auto & img_decoded = decoded_image->image;
+    if (img_original.channels() != img_decoded.channels()) {
+      std::cerr << "number of channels changed: " << img_original.channels() << " -> "
+                << img_decoded.channels() << std::endl;
+      throw(std::runtime_error("decoded image channels does not match original!"));
+    }
     if (img_original.rows != img_decoded.rows || img_original.cols != img_decoded.cols) {
       std::cerr << "decoded image size does not match. Decoded: " << img_decoded.cols << "x"
                 << img_decoded.rows << " vs original: " << img_original.cols << "x"
@@ -203,7 +209,9 @@ public:
     cv::Mat diff;
     cv::absdiff(img_original, img_decoded, diff);
     cv::Scalar mean_diff = cv::mean(diff);
-    total_mean_diff_ += mean_diff[0] + mean_diff[1] + mean_diff[2];
+    for (int i = 0; i < img_original.channels(); i++) {
+      total_mean_diff_ += mean_diff[i];
+    }
 
 #if defined(DEBUG_ERROR_HISTOGRAMS) || defined(DEBUG_ERROR_DETAILS)
     std::vector<cv::Mat> channels;
@@ -226,7 +234,7 @@ public:
 #endif
 #ifdef DEBUG_ERROR_DETAILS
     std::cout << std::setw(5) << num_frames_decoded_ << " error: ";
-    for (int channel = 0; channel < 3; ++channel) {
+    for (int channel = 0; channel < img_original.channels(); ++channel) {
       double min_val, max_val;
       cv::Point min_loc, max_loc;
       cv::minMaxLoc(channels[channel], &min_val, &max_val, &min_loc, &max_loc);
@@ -251,7 +259,11 @@ public:
   void flush()
   {
     std::cout << "flushing encoder for topic: " << topic_ << std::endl;
-    encoder_.flush(frame_id_);
+    const auto t0 = std::chrono::high_resolution_clock::now();
+    encoder_.flush();
+    total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::high_resolution_clock::now() - t0)
+                                       .count();
   }
 
   const FrameInfo & getFrameInfo(const rclcpp::Time & t)
@@ -282,7 +294,7 @@ public:
   }
   double getMeanDiff() const
   {
-    return (num_frames_decoded_ > 0 ? total_mean_diff_ / (3.0 * num_frames_decoded_) : 0.0);
+    return (num_frames_decoded_ > 0 ? total_mean_diff_ / (num_frames_decoded_) : 0.0);
   }
   double getDecodingRate() const
   {
@@ -297,7 +309,7 @@ private:
   std::shared_ptr<FFMPEGPacket> msg_;
   ffmpeg_encoder_decoder::Encoder encoder_;
   ffmpeg_encoder_decoder::Decoder decoder_;
-  uint64_t last_recording_time_{0};
+  std::string qualityMessagePixelFormat_{sensor_msgs::image_encodings::BGR8};
   uint64_t total_time_write_{0};  // in milliseconds
   uint64_t total_time_encode_plus_write_{0};
   uint64_t total_time_decode_{};
@@ -319,7 +331,7 @@ public:
     size_t max_num_frames_to_keep, const std::unordered_map<std::string, std::string> & options)
   : out_bag_(out_bag), check_quality_(check_quality)
   {
-    for (const std::string topic : topics) {
+    for (const std::string & topic : topics) {
       encoderdecoders_.insert(
         {topic, std::make_shared<EncoderDecoder>(
                   this, topic + "/ffmpeg", check_quality, max_num_frames_to_keep, options)});
@@ -372,7 +384,6 @@ public:
     if (it == encoderdecoders_.end()) {
       throw(std::runtime_error("topic " + topic + " not found in encoders!"));
     }
-    const auto t0 = std::chrono::high_resolution_clock::now();
     it->second->encode(t_recv, t_send, m);
     frame_number_++;
   }
@@ -462,7 +473,7 @@ int main(int argc, char ** argv)
 
   bag_time_t start_time = std::numeric_limits<bag_time_t>::min();
   bag_time_t end_time = std::numeric_limits<bag_time_t>::max();
-  double rate(-1);
+
   while ((opt = getopt(argc, argv, "i:o:t:O:s:e:m:qh")) != -1) {
     switch (opt) {
       case 'i':
@@ -482,9 +493,9 @@ int main(int argc, char ** argv)
         break;
       case 'O': {
         std::string key_value(optarg);
-        auto pos = key_value.find('=');
+        auto pos = key_value.find(':');
         if (pos == std::string::npos) {
-          std::cout << "invalid option: " << optarg << ", must be in the form <key>=<value>"
+          std::cout << "invalid option: " << optarg << ", must be in the form <key>:<value>"
                     << std::endl;
           usage();
           return (-1);
