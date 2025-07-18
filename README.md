@@ -80,6 +80,10 @@ The following example will compress lossless and check that it is indeed lossles
  ros2 run ffmpeg_image_transport_tools compress_bag -i <input_bag_name> -o <output_bag_name> -t <topic_name> -O encoder=libx264rgb -O crf=0 -O decoder=h264 -q
 ```
 
+Here another example for encoding and testing bayered images:
+```
+ros2 run ffmpeg_image_transport_tools compress_bag  -i <input_bag> -o <output_bag> -t <topic_1> -t <topic_2> -O encoder:libx265 -O crf:0 -O x265-params:lossless=1 -O decoder:hevc -O encoder_pixel_format:gray -O encoder_cv_bridge_target_format:mono8 -O decoder_message_output_format:mono8 -O quality_message_pixel_format:mono8 -q
+```
 
 ## License
 

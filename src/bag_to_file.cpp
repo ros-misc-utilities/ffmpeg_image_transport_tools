@@ -62,6 +62,7 @@ public:
     rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send, const std::string &,
     const FFMPEGPacket::ConstSharedPtr & m) final
   {
+    (void)t_send;
     const auto t_header = Time(m->header.stamp).nanoseconds();
     raw_file_.write(reinterpret_cast<const char *>(m->data.data()), m->data.size());
     ts_file_ << packet_number_++ << " " << m->pts << " " << t_header << " "
@@ -152,4 +153,5 @@ int main(int argc, char ** argv)
     bag, topics, topic_type, start_time, end_time);
   FileWriter fw(raw_file, time_stamp_file);
   bproc.process(&fw);
+  convertToMP4(raw_file, out_file + ".mp4", rate);
 }
