@@ -25,7 +25,7 @@ Set the following shell variables:
 repo=ffmpeg_image_transport_tools
 url=https://github.com/ros-misc-utilities/${repo}.git
 ```
-and follow the [instructions here](https://github.com/ros-misc-utilities/.github/blob/master/docs/build_ros_repository.md)
+and follow the [instructions here](https://github.com/ros-misc-utilities/.github/blob/master/docs/build_ros_repository.md).
 
 ## Processing rosbags
 
