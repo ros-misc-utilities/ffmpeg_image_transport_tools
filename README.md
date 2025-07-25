@@ -27,62 +27,128 @@ url=https://github.com/ros-misc-utilities/${repo}.git
 ```
 and follow the [instructions here](https://github.com/ros-misc-utilities/.github/blob/master/docs/build_ros_repository.md).
 
-## Processing rosbags
+## IMPORTANT explanation about image formats, encoding, and decoding
 
-### Extract an mp4 file from a rosbag
-The ``bag_to_file`` merges the ffmpeg-generated packets from a rosbag into a file:
+The packets in an ffmpeg-encoded stream (FFMPEGPacket message type) are encoded by an *encoder* (``hevc_nvenc``, ``libx264`` etc), in a specific *codec* (like ``hevc``, ``h264``, ``av1`` etc).
+The libav *decoder* specified (``hevc_cuvid`` etc) must be able to decode the codec.
+By running ``ffmpeg -decoders`` or ``fmpeg -encoders`` you can find a list of suitable encoders and decoders for your codec (or you can specify none and let the decoder find one for you).
+
+Moreover, the encoded images in the stream have a specific image format (also called pixel format) like ``nv12``, ``yuv420p``, ``bgr24`` etc.
+These image formats are determined by whatever format the image was in when it was fed to the encoder.
+Often an encoder will only support a very limited number of pixel formats. Few of them support gray images, and none of them supports bayer images.
+If for instance your original ROS message has an image format of ``mono8``, the image will first be converted with the cv\_bridge into the ``encoder_cv_bridge_target_format``, which defaults to ``rgb8``.
+From there the image will be converted with libswscale to a format the encoder can handle, often ``yuv420p`` or ``nv12``, and finally fed into the encoder.
+If you want to avoid loss of fidelity due to the image conversions by cv\_bridge or libswscale you should specify the ``cv_bridge_target_format`` explicitly to be identical to the original format of your ROS images.
+Some special hacks in the encoder and decoder allow you to specify an ``cv_bridge_target_format`` (like ``mono8`` and bayer images) that isn't even supported by libswscale. In this case, the single-channel ROS image is converted to a color format (e.g. ``yuv420p``) by adding a fake color channel, then fed to the encoder.
+On the decoder side, a similar trick recovers the original image.
+
+## Programs for processing rosbags
+
+### bag\_to\_file
+The ``bag_to_file`` tool simply concatenates the FFMPEGPacket message content from a rosbag into a file, and runs the ``ffmpeg`` tool to
+embed the stream into a an ``mp4`` container.
 ```
-bag_to_file -b input_bag -t topic -r rate [-o out_file] [-T timestamp_file] [-s start_time] [-e end_time]
+bag_to_file -i input_bag -t topic -r rate [-o out_file] [-T timestamp_file] [-s start_time (sec since epoch)] [-e end_time (sec since epoch)]
 ```
 
-The ``rate`` determines the fps used by ffmpeg when producing the
-output. The video is not transcoded, so what you get is the original
-stream, just in a mp4 container. To get correct playing speed the rate must
-match the rate at which the stream was originally recorded.
-
-The ``start_time`` and ``end_time`` is given in seconds since the
-epoch, like the times you see when using ``ros2 bag info``. 
+The ``rate`` determines the fps used by ffmpeg when producing the output.
+The video is not transcoded, so what you get is the original stream, just in an mp4 container.
+To get correct playing speed the rate must match the rate at which the stream was originally recorded.
 
 For example the following line produces a file ``video.mp4`` and ``timestamps.txt`` from a rosbag:
 ```
-ros2 run ffmpeg_image_transport_tools bag_to_file -t /cam1/image_raw/ffmpeg -r 40 -b ./my_rosbag/ -e 1710085164.466
+ros2 run ffmpeg_image_transport_tools bag_to_file -t /cam1/image_raw/ffmpeg -r 40 -i ./my_rosbag/ -e 1710085164.466
 ```
 
-The ``timestamp.txt`` file has the following entries:
+The ``timestamp.txt`` file facilitates correlating ROS time stamps with frame numbers. It has the following entries:
 ```
 # packet no, pts, header_stamp  recording_stamp
 0 0 1710085154473057750 1710085156001866724
 1 1 1710085155950467594 1710085156024209913
 ```
-A H264 packet typically corresponds to a frame so the packet number
-conincides with the  frame number.
+A H264 packet typically corresponds to a frame so the packet number should conincide with the  frame number.
 
-### Extract frames from a rosbag
-The ``bag_to_frames`` decodes the ffmpeg-generated packets from a rosbag into frames:
-```
-ros2 run ffmpeg_image_transport_tools bag_to_frames -b input_bag -t topic [-o out_dir] [-d decoder][-T timestamp_file] [-s start_time] [-e end_time]
-```
-The frames are written to ``out_dir`` with the ros header stamps embedded in the file name. A suitable decoder is usually guessed from the encoding used in the packet, but you can specify a valid ffmpeg decoder by using the ``-d decoder`` option. For start and stop times and the timestamp file see ``bag_to_file``.
+### bag\_to\_frames
 
-### Compress images in a rosbag
-Use ``compress_bag`` to encode a video stored as Image messages into FFMPEGPacket format.
+The ``bag_to_frames`` program  decodes the ffmpeg-generated packets from a rosbag into frames:
 ```
-ros2 run ffmpeg_image_transport_tools compress_bag  -i input_bag -o output_bag -t /first_image_topic -t /next_image_topic [-O encoder=hevc_vaapi] [-s start_time] [-e end_time]
-```
-There are various other encoder options you can set. For more info, run with the ``-h`` option.
+bag_to_frames -i input_bag -t topic [options]
 
-NOTE: the header timestamps for each topic must be unique, i.e. images on the same topic cannot have identical time stamps!
-
-You can also check for the quality of the encoding be immediately decoding the encoded packet with the ``-q`` switch (quality check). This will slow down the conversion quite a bit though. The error printed out is computed by taking the absolute of the difference of original and encoded image.
-
-The following example will compress lossless and check that it is indeed lossless:
+options:
+ -o out_dir         name of the output directory (defaults to "frames")
+ -d decoder         name of the libav decoder (hevc_cuvid, libx264 etc)
+ -O output_format   ros encoding ('bgr8', 'mono', ...) to convert to before writing image.
+ -f file_type       frame file type ('png', 'jpeg'). Defaults to jpeg.
+ -T timestamp_file  name of time stamp file.
+ -s start_time      time in sec since epoch.
+ -e end_time        time in sec since epoch.
 ```
- ros2 run ffmpeg_image_transport_tools compress_bag -i <input_bag_name> -o <output_bag_name> -t <topic_name> -O encoder=libx264rgb -O crf=0 -O decoder=h264 -q
+If not specified, the decoder will be automatically (not necessarily correctly) picked. Not all decoders for a codec can handle all encoded image formats.
+For example if the codec is ``hevc`` and a bayer image (``bayer_rggb8``) has been encoded with image format ``nv12``, then the ``h265`` will throw the following error:
+```
+[INFO] [1753428586.070137592] [bag_to_frames]: using decoder: hevc
+[WARN] [1753428586.406598438] [Decoder]: hardware frame transfer failed for pixel format yuv420p
+```
+Before the image is written a final conversion to the ``output_format`` is performed. The default is ``bgr8``.
+The format string must follow [ROS convention](https://docs.ros.org/en/jazzy/p/sensor_msgs/generated/program_listing_file_include_sensor_msgs_image_encodings.hpp.html) rather than the libav convention, i.e. ``bgr8`` rather than ``bgr24``.
+
+
+### compress\_bag
+
+Use ``ros2 run ffmpeg_image_transport_tools compress_bag`` to encode a video stored as Image messages into FFMPEGPacket format.
+Usage is as follows:
+```
+compress_bag -i in_bag -o out_bag -t topic [-t topic ... ] [options]
+options:
+ -q enable quality check
+ -I write debug images
+ -m max_num_frames_to_keep (for matching encoded/decoded packets. defaults to 100)
+ -s start_time [in sec since epoch]
+ -e end_time [in sec since epoch]
+  ------- encoder options -------
+ -E <key:value> encoding options:
+    encoder:<name_of_encoder> (defaults to libx264)
+    cv_bridge_target_format:<name_of_ros_format> (defaults to rgb8)
+    av_source_pixel_format:<name_of_libav_pixel_format> (fed into the encoder)
+    qmax:<qmax> (no default, quantization error, value of 1 is best quality)
+    bit_rate:<bit_rate>
+    max_b_frames:<max_b_frames>
+    gop_size:<gop_size>
+    measure_performance:<0 or 1>
+    (any libav option like tune, profile, crf, delay, following key:value syntax)
+  ------- decoder options ------
+ -D <key:value> decoder options:
+    decoder:<name_of_decoder> (no default, use e.g. h264)
+    decoder_output_format:<ros image format> (defaults to cv_bridge_target_format)
+  ------- quality check options ------
+ -Q <key:value> quality check options:
+    quality_check_format:<ros image format for quality check> (default rgb8)
+```
+NOTE: the header timestamps within each topic must be unique, i.e. images on the same topic cannot have identical time stamps!
+
+You can also check for the quality of the encoding by immediately decoding the encoded packet with the ``-q`` switch (quality check).
+This will slow down the conversion quite a bit though.
+The error printed out is computed by taking the absolute of the difference of original and encoded image separate for each channel.
+
+The following example will compress lossless and check the quality:
+```
+ ros2 run ffmpeg_image_transport_tools compress_bag -i <input_bag_name> -o <output_bag_name> -t <topic_name> -O encoder:libx264rgb -O crf:0 -O decoder:h264 -q
 ```
 
-Here another example for encoding and testing bayered images:
+If you watch the console log you may notice that the ``cv_bridge_target_format`` is ``bgr8``, which could be different from the original ROS image encoding
+of the rosbag images.
+This means the images are converted to ``bgr8`` before they are even encoded.
+To force encoding in the original image format, explicitly specify the format with the ``-E cv_bridge_target_format:format`` option.
+Here an example for lossless encoding and testing bayer images in ``bayer_rggb8`` format. Without the ``-E cv_bridge_target_format:bayer_rggb8``
+the images would be converted to ``rgb8`` by default, then maybe converted again to ``nv12`` or ``yuv420p`` (lossy!) before encoding.
 ```
-ros2 run ffmpeg_image_transport_tools compress_bag  -i <input_bag> -o <output_bag> -t <topic_1> -t <topic_2> -O encoder:libx265 -O crf:0 -O x265-params:lossless=1 -O decoder:hevc -O encoder_pixel_format:gray -O encoder_cv_bridge_target_format:mono8 -O decoder_message_output_format:mono8 -O quality_message_pixel_format:mono8 -q
+ros2 run ffmpeg_image_transport_tools compress_bag  -i <input_bag> -o <output_bag> -t <topic_1> -t <topic_2> -E encoder:hevc_nvenc -E tune:lossless -D decoder:hevc -E cv_bridge_target_format:bayer_rggb8 -q
+```
+
+Note that the final check of image quality (``-q``) by default happens in the (default) format of ``rgb8`` again.
+To perform the check in the original (e.g. ``bayer_rggb8``) format, use the decoder option ``-Q quality_check_format:bayer_rggb8``.
+```
+ros2 run ffmpeg_image_transport_tools compress_bag  -i <input_bag> -o <output_bag> -t <topic_1> -t <topic_2> -E encoder:hevc_nvenc -E tune:lossless -D decoder:hevc -E cv_bridge_target_format:bayer_rggb8 -Q quality_check_format:bayer_rggb8 -q
 ```
 
 ## License

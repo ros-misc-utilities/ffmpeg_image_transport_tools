@@ -38,11 +38,11 @@ class BagProcessor
 {
 public:
   BagProcessor(
-    const std::string & bag_name, const std::vector<std::string> & topics,
+    rclcpp::Logger logger, const std::string & bag_name, const std::vector<std::string> & topics,
     const std::string & topic_type, bag_time_t start_time, bag_time_t end_time)
-  : start_time_(start_time), end_time_(end_time)
+  : logger_(logger), start_time_(start_time), end_time_(end_time)
   {
-    std::cout << "opening bag: " << bag_name << std::endl;
+    RCLCPP_INFO_STREAM(logger, "opening bag: " << bag_name);
     reader_.open(bag_name);
     const auto meta = reader_.get_all_topics_and_types();
     for (const auto & topic : topics) {
@@ -52,10 +52,11 @@ public:
           return (m.name == topic && m.type == topic_type);
         });
       if (it == meta.end()) {
-        std::cerr << "topic " << topic << " with type " << topic_type << " not found!" << std::endl;
+        RCLCPP_ERROR_STREAM(
+          logger_, "topic " << topic << " with type " << topic_type << " not found!");
         throw(std::runtime_error("topic not found!"));
       }
-      std::cout << "found topic: " << it->name << " with type: " << it->type << std::endl;
+      RCLCPP_INFO_STREAM(logger_, "found topic: " << it->name << " of type: " << it->type);
       filter_.topics.push_back(topic);
     }
     reader_.set_filter(filter_);
@@ -65,7 +66,7 @@ public:
   {
     const auto start = std::chrono::high_resolution_clock::now();
     if (start_time_ != std::numeric_limits<bag_time_t>::min()) {
-      std::cout << "seeking for start time: " << start_time_ << std::endl;
+      RCLCPP_INFO_STREAM(logger_, "seeking for start time: " << start_time_);
       reader_.seek(start_time_);
     }
     size_t message_number{0};
@@ -99,6 +100,7 @@ public:
   }
 
 private:
+  rclcpp::Logger logger_;
   rosbag2_cpp::Reader reader_;
   rosbag2_storage::StorageFilter filter_;
   std::set<std::string> topics_;

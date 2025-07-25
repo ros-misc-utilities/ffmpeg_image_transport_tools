@@ -38,40 +38,46 @@
 #endif
 
 // #define DEBUG_ERROR_HISTOGRAMS
-#define DEBUG_ERROR_DETAILS
-#define DEBUG_WRITE_IMAGES
 
-#ifdef DEBUG_WRITE_IMAGES
 std::string make_file_name(const std::string & prefix, const size_t n)
 {
   std::stringstream ss;
   ss << prefix << std::setfill('0') << std::setw(4) << n << ".png";
   return (ss.str());
 }
-#endif
+
+static rclcpp::Logger logger = rclcpp::get_logger("compress_bag");
 
 void usage()
 {
   std::cout << "usage:" << std::endl;
-  std::cout << "compress_bag -i in_bag -o out_bag -t topic [-t topic ... ] [-q (check quality)] "
-               "[-m max_num_frames_to_keep] "
-               "[-O key=value] [-s start_time] [-e end_time] "
-            << std::endl;
-  std::cout << " -O encoding options:" << std::endl
-            << "    encoder=<name_of_encoder>, defaults to libx264" << std::endl
-            << "    preset" << std::endl
-            << "    tune" << std::endl
-            << "    profile" << std::endl
-            << "    delay" << std::endl
-            << "    crf" << std::endl
-            << "    pixel_format (used before encoding)" << std::endl
-            << "    encoder_cv_bridge_target_format" << std::endl
-            << "    qmax (quantization error, value of 1 is best quality)" << std::endl
-            << "    bit_rate" << std::endl
-            << "    gop_size" << std::endl
-            << "    measure_performance" << std::endl;
-  std::cout << " -O decoder options:" << std::endl
-            << "    decoder=<name_of_decoder> (no default, use e.g. h264)" << std::endl;
+  std::cout
+    << "compress_bag -i in_bag -o out_bag -t topic [-t topic ... ] [options]\n"
+       "options:\n"
+       " -q enable quality check\n"
+       " -I write debug images\n"
+       " -m max_num_frames_to_keep (for matching encoded/decoded packets. defaults to 100)\n"
+       " -s start_time [in sec since epoch]\n"
+       " -e end_time [in sec since epoch]\n"
+       "  ------- encoder options -------\n"
+       " -E <key:value> encoding options:\n"
+       "    encoder:<name_of_encoder> (defaults to libx264)\n"
+       "    cv_bridge_target_format:<name_of_ros_format> (defaults to rgb8)\n"
+       "    av_source_pixel_format:<name_of_libav_pixel_format> (fed into the encoder)\n"
+       "    qmax:<qmax> (no default, quantization error, value of 1 is best quality)\n"
+       "    bit_rate:<bit_rate>\n"
+       "    max_b_frames:<max_b_frames>\n"
+       "    gop_size:<gop_size>\n"
+       "    measure_performance:<0 or 1>\n"
+       "    (any libav option like tune, profile, crf, delay, following key:value syntax)\n"
+       "  ------- decoder options ------\n"
+       " -D <key:value> decoder options:\n"
+       "    decoder:<name_of_decoder> (no default, use e.g. h264)\n"
+       "    decoder_output_format:<ros image format> (defaults to cv_bridge_target_format)\n"
+       "  ------- quality check options ------\n"
+       " -Q <key:value> quality check options:\n"
+       "    quality_check_format:<ros image format for quality check> (default rgb8)"
+    << std::endl;
 }
 
 using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
@@ -104,22 +110,23 @@ public:
     for (const auto & [n, v] : options) {
       if (n == "encoder") {
         encoder_.setEncoder(v);
-        std::cout << topic_ << " encoding with " << v << std::endl;
+        RCLCPP_INFO_STREAM(logger, "using libav encoder: " << v);
       } else if (n == "decoder") {
         decoder_type_ = v;
-      } else if (n == "encoder_pixel_format") {
-        std::cout << "libav encoder uses pixel format to " << v << std::endl;
+      } else if (n == "av_source_pixel_format") {
+        RCLCPP_INFO_STREAM(logger, "setting av_source_pixel_format: " << v);
         encoder_.setAVSourcePixelFormat(v);
-      } else if (n == "encoder_cv_bridge_target_format") {
+      } else if (n == "cv_bridge_target_format") {
         encoder_.setCVBridgeTargetFormat(v);
-      } else if (n == "decoder_message_output_format") {
+      } else if (n == "decoder_output_format") {
+        RCLCPP_INFO_STREAM(logger, "setting decoder output format: " << v);
         decoder_.setOutputMessageEncoding(v);
-        std::cout << "decoder uses output format: " << v << std::endl;
-      } else if (n == "quality_message_pixel_format") {
-        std::cout << "for quality check, uses pixel format: " << v << std::endl;
-        qualityMessagePixelFormat_ = v;
+      } else if (n == "quality_check_format") {
+        quality_msg_pix_fmt_ = v;
       } else if (n == "qmax") {
         encoder_.setQMax(std::stoi(v));
+      } else if (n == "max_b_frames") {
+        encoder_.setMaxBFrames(std::stoi(v));
       } else if (n == "bit_rate") {
         encoder_.setBitRate(std::stoi(v));
       } else if (n == "gop_size") {
@@ -139,16 +146,11 @@ public:
 #endif
     }
   }
+
   void encode(
     rcutils_time_point_value_t t_recv, rcutils_time_point_value_t t_send,
-    const Image::ConstSharedPtr & msg_color)
+    const Image::ConstSharedPtr & m)
   {
-#ifdef ENCODE_AS_GREY_FOR_DEBUG
-    auto cv_grey_img = cv_bridge::toCvCopy(msg_color, sensor_msgs::image_encodings::MONO8);
-    auto m = cv_grey_img->toImageMsg();
-#else
-    auto & m = msg_color;
-#endif
     frame_id_ = m->header.frame_id;
     stamp_to_image_.insert({rclcpp::Time(m->header.stamp), FrameInfo(m, t_recv, t_send)});
     while (stamp_to_image_.size() > max_num_frames_to_keep_) {
@@ -158,9 +160,11 @@ public:
     if (!encoder_.isInitialized()) {
       if (!encoder_.initialize(
             msg.width, msg.height,
-            std::bind(&EncoderDecoder::packetReady, this, _1, _2, _3, _4, _5, _6, _7, _8, _9))) {
+            std::bind(&EncoderDecoder::packetReady, this, _1, _2, _3, _4, _5, _6, _7, _8, _9),
+            m->encoding)) {
         throw(std::runtime_error("cannot init encoder!"));
       }
+      RCLCPP_INFO_STREAM(logger, "original ros image encoding: " << msg.encoding);
     }
     const auto t0 = std::chrono::high_resolution_clock::now();
     encoder_.encodeImage(msg);
@@ -170,12 +174,18 @@ public:
     num_frames_encoded_++;
   }
 
+  cv::Mat toCVMat(const Image::ConstSharedPtr & msg, const std::string & fmt)
+  {
+    auto cv_img = cv_bridge::toCvShare(msg, fmt);
+    if (!cv_img) {
+      throw(cv_bridge::Exception("compress_bag:: cv_bridge cannot convert image"));
+    }
+    return (cv_img->image);
+  }
+
   // this method only called for quality check
   void decodedFrameReady(const Image::ConstSharedPtr & msg, bool /* isKeyFrame */)
   {
-    std::cout << "decoded frame: " << msg->encoding << " " << msg->width << "x" << msg->height
-              << " sz: " << msg->data.size() << " per line: " << msg->data.size() / msg->height
-              << " step: " << msg->step << std::endl;
     const auto & frame_info = getFrameInfo(rclcpp::Time(msg->header.stamp));
     const auto & orig_msg = frame_info.msg;
 
@@ -187,19 +197,13 @@ public:
                 << std::endl;
     }
 
-    auto decoded_image = cv_bridge::toCvShare(msg, qualityMessagePixelFormat_);
-    if (!decoded_image) {
-      throw(std::runtime_error("cannot convert image to cv::Mat!"));
-    }
-    auto original_image = cv_bridge::toCvShare(orig_msg, qualityMessagePixelFormat_);
-    if (!original_image) {
-      throw(std::runtime_error("cannot convert image to cv::Mat!"));
-    }
-    const auto & img_original = original_image->image;
-    const auto & img_decoded = decoded_image->image;
+    auto img_original = toCVMat(orig_msg, quality_msg_pix_fmt_);
+    auto img_decoded = toCVMat(msg, quality_msg_pix_fmt_);
+
     if (img_original.channels() != img_decoded.channels()) {
-      std::cerr << "number of channels changed: " << img_original.channels() << " -> "
-                << img_decoded.channels() << std::endl;
+      RCLCPP_ERROR_STREAM(
+        logger, "number of channels changed: " << img_original.channels() << " -> "
+                                               << img_decoded.channels());
       throw(std::runtime_error("decoded image channels does not match original!"));
     }
     if (
@@ -222,10 +226,8 @@ public:
       total_mean_diff_ += mean_diff[i];
     }
 
-#if defined(DEBUG_ERROR_HISTOGRAMS) || defined(DEBUG_ERROR_DETAILS)
     std::vector<cv::Mat> channels;
     cv::split(diff, channels);
-#endif
 #ifdef DEBUG_ERROR_HISTOGRAMS
     for (int channel = 0; channel < img_original.channels(); ++channel) {
       const int histSize = 256;
@@ -241,23 +243,24 @@ public:
       histogram_file_ << std::endl;
     }
 #endif
-#ifdef DEBUG_ERROR_DETAILS
-    std::cout << std::setw(5) << num_frames_decoded_ << " error: ";
+    std::stringstream ss;
+    ss << std::setw(5);
     for (int channel = 0; channel < img_original.channels(); ++channel) {
       double min_val, max_val;
       cv::Point min_loc, max_loc;
       cv::minMaxLoc(channels[channel], &min_val, &max_val, &min_loc, &max_loc);
-      std::cout << " mean: " << mean_diff[channel] << " max: " << max_val << " at (" << max_loc.x
-                << "," << max_loc.y << ")";
+      ss << " mean: " << mean_diff[channel] << " max: " << max_val << " at (" << max_loc.x << ","
+         << max_loc.y << ")";
     }
-    std::cout << std::endl;
-#endif
-
-#ifdef DEBUG_WRITE_IMAGES
-    const auto ts = rclcpp::Time(msg->header.stamp).nanoseconds();
-    cv::imwrite(make_file_name("orig_", ts), img_original);
-    cv::imwrite(make_file_name("dec_", ts), img_decoded);
-#endif
+    RCLCPP_INFO_STREAM(
+      logger, std::setw(5) << num_frames_decoded_ << " " << msg->encoding << " " << msg->width
+                           << "x" << msg->height << " step: " << msg->step
+                           << " error: " << ss.str());
+    if (write_debug_images_) {
+      const auto ts = rclcpp::Time(msg->header.stamp).nanoseconds();
+      cv::imwrite(make_file_name("orig_", ts), img_original);
+      cv::imwrite(make_file_name("dec_", ts), img_decoded);
+    }
     num_frames_decoded_++;
   }
 
@@ -267,7 +270,7 @@ public:
 
   void flush()
   {
-    std::cout << "flushing encoder for topic: " << topic_ << std::endl;
+    RCLCPP_INFO_STREAM(logger, "flushing encoder for topic: " << topic_);
     const auto t0 = std::chrono::high_resolution_clock::now();
     encoder_.flush();
     total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -310,6 +313,7 @@ public:
     const double dt = getDecodingTime();
     return (dt > 0.0 ? (1000.0 / dt) : -1.0);
   }
+  void setWriteDebugImages(bool b) { write_debug_images_ = b; }
 
 private:
   Compressor * compressor_;
@@ -317,15 +321,17 @@ private:
   std::string frame_id_;
   std::shared_ptr<FFMPEGPacket> msg_;
   ffmpeg_encoder_decoder::Encoder encoder_;
-  ffmpeg_encoder_decoder::Decoder decoder_;
-  std::string qualityMessagePixelFormat_{sensor_msgs::image_encodings::BGR8};
   uint64_t total_time_write_{0};  // in milliseconds
   uint64_t total_time_encode_plus_write_{0};
-  uint64_t total_time_decode_{};
+  uint64_t total_time_decode_{0};
   size_t num_frames_encoded_{0};
+  // decoder related
+  ffmpeg_encoder_decoder::Decoder decoder_;
   size_t num_frames_decoded_{0};
   std::string decoder_type_;
   bool check_quality_{false};  // check quality of encoded frames
+  std::string quality_msg_pix_fmt_{sensor_msgs::image_encodings::BGR8};
+  bool write_debug_images_;
   size_t max_num_frames_to_keep_{0};
   std::map<rclcpp::Time, FrameInfo> stamp_to_image_;
   std::ofstream histogram_file_;
@@ -350,7 +356,7 @@ public:
     try {
       writer_->open(out_bag);
     } catch (const std::exception & e) {
-      std::cerr << "error opening output bag " << out_bag << ": " << e.what() << std::endl;
+      RCLCPP_ERROR_STREAM(logger, "error opening output bag " << out_bag << ": " << e.what());
       throw(e);
     }
     for (const auto & topic : topics) {
@@ -368,21 +374,23 @@ public:
     for (auto & [topic, encoder] : encoderdecoders_) {
       encoder->flush();
     }
-    std::cout << "closing bag file " << out_bag_ << std::endl;
+    RCLCPP_INFO_STREAM(logger, "closing bag file " << out_bag_);
     writer_->close();
     const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::high_resolution_clock::now() - start_time_)
                       .count();
-    std::cout << "processed " << frame_number_ << " frames in " << 1e-3 * dt
-              << "s = " << (frame_number_ / (1e-3 * dt)) << " fps" << std::endl;
+    RCLCPP_INFO_STREAM(
+      logger, "processed " << frame_number_ << " frames in " << 1e-3 * dt
+                           << "s = " << (frame_number_ / (1e-3 * dt)) << " fps");
     for (const auto & [topic, encoder] : encoderdecoders_) {
-      std::cout << "encoding for topic " << topic << " takes " << encoder->getEncodingTime()
-                << "ms/frame, rate: " << encoder->getEncodingRate() << "fps";
+      RCLCPP_INFO_STREAM(
+        logger, "encoding for topic " << topic << " takes " << encoder->getEncodingTime()
+                                      << "ms/frame, rate: " << encoder->getEncodingRate() << "fps");
       if (check_quality_) {
-        std::cout << " decode rate: " << encoder->getDecodingRate()
-                  << " fps, mean err: " << encoder->getMeanDiff();
+        RCLCPP_INFO_STREAM(
+          logger, " decode rate: " << encoder->getDecodingRate()
+                                   << " fps, mean err: " << encoder->getMeanDiff());
       }
-      std::cout << std::endl;
     }
   }
 
@@ -413,6 +421,13 @@ public:
     writer_->write(*smsg, topic, topicType, t_recv);
 #endif
     num_msgs_written_++;
+  }
+
+  void setWriteDebugImages(bool b)
+  {
+    for (auto & kv : encoderdecoders_) {
+      kv.second->setWriteDebugImages(b);
+    }
   }
 
 private:
@@ -457,12 +472,13 @@ void EncoderDecoder::packetReady(
             codec, std::bind(&EncoderDecoder::decodedFrameReady, this, _1, _2), decoder_type_)) {
         throw(std::runtime_error("cannot init decoder!"));
       }
+      RCLCPP_INFO_STREAM(logger, "checking quality using image format: " << quality_msg_pix_fmt_);
     }
     const auto t1 = std::chrono::high_resolution_clock::now();
     if (!decoder_.decodePacket(
           msg_->encoding, msg_->data.data(), msg_->data.size(), msg_->pts, msg_->header.frame_id,
           msg_->header.stamp)) {
-      std::cerr << "error decoding packet for topic " << topic_ << std::endl;
+      RCLCPP_ERROR_STREAM(logger, "error decoding packet for topic " << topic_);
     }
     total_time_decode_ += std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::high_resolution_clock::now() - t1)
@@ -477,6 +493,7 @@ int main(int argc, char ** argv)
   std::string out_bag;
   std::vector<std::string> topics;
   bool check_quality = false;
+  bool write_debug_images = false;
   size_t max_num_frames_to_keep = 100;
   std::unordered_map<std::string, std::string> options;
   options["encoder"] = "libx264";
@@ -484,10 +501,13 @@ int main(int argc, char ** argv)
   bag_time_t start_time = std::numeric_limits<bag_time_t>::min();
   bag_time_t end_time = std::numeric_limits<bag_time_t>::max();
 
-  while ((opt = getopt(argc, argv, "i:o:t:O:s:e:m:qh")) != -1) {
+  while ((opt = getopt(argc, argv, "i:o:t:E:D:Q:s:e:m:qhI")) != -1) {
     switch (opt) {
       case 'i':
         in_bag = optarg;
+        break;
+      case 'I':
+        write_debug_images = true;
         break;
       case 'o':
         out_bag = optarg;
@@ -501,7 +521,9 @@ int main(int argc, char ** argv)
       case 't':
         topics.push_back(optarg);
         break;
-      case 'O': {
+      case 'Q':
+      case 'E':
+      case 'D': {
         std::string key_value(optarg);
         auto pos = key_value.find(':');
         if (pos == std::string::npos) {
@@ -561,7 +583,8 @@ int main(int argc, char ** argv)
 
   const std::string topic_type = "sensor_msgs/msg/Image";
   ffmpeg_image_transport_tools::BagProcessor<Image> bproc(
-    in_bag, topics, topic_type, start_time, end_time);
+    logger, in_bag, topics, topic_type, start_time, end_time);
   Compressor comp(out_bag, topics, check_quality, max_num_frames_to_keep, options);
+  comp.setWriteDebugImages(write_debug_images);
   bproc.process(&comp);
 }
