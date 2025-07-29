@@ -17,7 +17,7 @@
 #
 
 """
-grab single image from bag.
+grab images from bag.
 """
 
 import rosbag2_py
@@ -29,26 +29,28 @@ from cv_bridge import CvBridge
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
-def get_rosbag_options(path, serialization_format='cdr'):
+
+def get_rosbag_options(path, serialization_format="cdr"):
     storage_options = rosbag2_py.StorageOptions(uri=path)
 
     converter_options = rosbag2_py.ConverterOptions(
         input_serialization_format=serialization_format,
-        output_serialization_format=serialization_format)
+        output_serialization_format=serialization_format,
+    )
 
     return storage_options, converter_options
 
 
 def main(args):
     in_bag_name = str(args.in_bag)
-    print(f'searching bag {in_bag_name}, topic {args.topic}')
-
     storage_options, converter_options = get_rosbag_options(in_bag_name)
     reader = rosbag2_py.SequentialReader()
     reader.open(storage_options, converter_options)
     # Create a map for quicker lookup
     topic_types = reader.get_all_topics_and_types()
-    type_map = {topic_types[i].name: topic_types[i].type for i in range(len(topic_types))}
+    type_map = {
+        topic_types[i].name: topic_types[i].type for i in range(len(topic_types))
+    }
 
     # Set filter for topic of string type
     storage_filter = rosbag2_py.StorageFilter(topics=[args.topic])
@@ -63,21 +65,31 @@ def main(args):
             stamp = msg.header.stamp
             # print(f'{cnt} {stamp.sec} {stamp.nanosec}')
             cnt += 1
-            img = bridge.imgmsg_to_cv2(msg, 'bgr8')
+            img = bridge.imgmsg_to_cv2(msg, "bgr8")
             ts = rclpy.time.Time.from_msg(msg.header.stamp).nanoseconds
-            print(f'{cnt:5d} converted image at time: {ts}')
-            cv2.imwrite(f'{args.out_dir}/frame_{ts}.png', img)
-    
+            print(f"{cnt:5d} converted image at time: {ts}")
+            cv2.imwrite(f"{args.out_dir}/frame_{ts}.png", img)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='grab single image from bag')
-    parser.add_argument('--in_bag', '-i', action='store', default=None,
-                        required=True, help='bag file to images from')
-    parser.add_argument('--topic', '-t', action='store', required=True, help='image topic')
-    parser.add_argument('--out_dir', '-o', action='store', default=None,
-                        required=True, help='name of output directory')
-    parser.add_argument('--all', '-a', action='store', default=False,
-                        required=False, help='extract all frames')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="grab single image from bag")
+    parser.add_argument(
+        "--in_bag",
+        "-i",
+        action="store",
+        default=None,
+        required=True,
+        help="bag file to images from",
+    )
+    parser.add_argument(
+        "--topic", "-t", action="store", required=True, help="image topic"
+    )
+    parser.add_argument(
+        "--out_dir",
+        "-o",
+        action="store",
+        default=None,
+        required=True,
+        help="name of output directory",
+    )
     main(parser.parse_args())
