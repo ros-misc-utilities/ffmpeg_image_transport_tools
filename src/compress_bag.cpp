@@ -179,10 +179,12 @@ public:
     const auto & frame_info = getFrameInfo(rclcpp::Time(msg->header.stamp));
     const auto & orig_msg = frame_info.msg;
 
-    if (msg->width != orig_msg->width || msg->height != orig_msg->height) {
-      std::cerr << "decoded image size mismatch! Decoded: " << msg->width << "x" << msg->height
-                << " vs original: " << orig_msg->width << "x" << orig_msg->height << std::endl;
-      throw(std::runtime_error("decoded image size does not match original!"));
+    if (
+      (msg->width != orig_msg->width || msg->height != orig_msg->height) &&
+      warn_of_size_mismatch_) {
+      std::cerr << "WARNING: decoded image size mismatch! Decoded: " << msg->width << "x"
+                << msg->height << " vs original: " << orig_msg->width << "x" << orig_msg->height
+                << std::endl;
     }
 
     auto decoded_image = cv_bridge::toCvShare(msg, qualityMessagePixelFormat_);
@@ -200,14 +202,21 @@ public:
                 << img_decoded.channels() << std::endl;
       throw(std::runtime_error("decoded image channels does not match original!"));
     }
-    if (img_original.rows != img_decoded.rows || img_original.cols != img_decoded.cols) {
+    if (
+      (img_original.rows != img_decoded.rows || img_original.cols != img_decoded.cols) &&
+      warn_of_size_mismatch_) {
       std::cerr << "decoded image size does not match. Decoded: " << img_decoded.cols << "x"
                 << img_decoded.rows << " vs original: " << img_original.cols << "x"
                 << img_original.rows << std::endl;
-      throw(std::runtime_error("decoded image size (cv) does not match original!"));
     }
+    warn_of_size_mismatch_ = false;
     cv::Mat diff;
-    cv::absdiff(img_original, img_decoded, diff);
+    const int rows = std::min(img_original.rows, img_decoded.rows);
+    const int cols = std::min(img_original.cols, img_decoded.cols);
+    cv::Mat sub_decoded = img_decoded(cv::Rect(0, 0, cols, rows));
+    cv::Mat sub_original = img_original(cv::Rect(0, 0, cols, rows));
+
+    cv::absdiff(sub_original, sub_decoded, diff);
     cv::Scalar mean_diff = cv::mean(diff);
     for (int i = 0; i < img_original.channels(); i++) {
       total_mean_diff_ += mean_diff[i];
@@ -321,6 +330,7 @@ private:
   std::map<rclcpp::Time, FrameInfo> stamp_to_image_;
   std::ofstream histogram_file_;
   double total_mean_diff_{0.0};  // sum of mean differences for all decoded frame
+  bool warn_of_size_mismatch_{true};
 };
 
 class Compressor : public ffmpeg_image_transport_tools::MessageProcessor<Image>
