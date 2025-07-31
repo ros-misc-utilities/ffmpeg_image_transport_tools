@@ -55,6 +55,8 @@ using sensor_msgs::msg::Image;
 using Path = std::filesystem::path;
 using rclcpp::Time;
 using bag_time_t = rcutils_time_point_value_t;
+using ffmpeg_encoder_decoder::utils::split_by_char;
+
 using namespace std::placeholders;
 namespace fs = std::filesystem;
 
@@ -91,8 +93,8 @@ public:
         RCLCPP_INFO_STREAM(logger, "decoding packets for codec: " << m->encoding);
         firstTime_ = false;
         if (decoder_names_.empty()) {
-          decoder_names_ = Decoder::findDecoders(
-            ffmpeg_encoder_decoder::utils::split_by_char(m->encoding, '/')[0]);
+          decoder_names_ =
+            split_by_char(Decoder::findDecoders(split_by_char(m->encoding, ';')[0]), ',');
         }
       }
       while (!decoder_names_.empty()) {
