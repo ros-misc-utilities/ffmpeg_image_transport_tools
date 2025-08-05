@@ -100,11 +100,27 @@ target_link_libraries(compress_bag
 target_compile_features(compress_bag PRIVATE cxx_std_17)
 target_include_directories(compress_bag PRIVATE include)
 
+#
+# -------- uncompress_bag
+#
+add_executable(uncompress_bag  src/uncompress_bag.cpp)
+target_link_libraries(uncompress_bag
+  cv_bridge::cv_bridge
+  ffmpeg_encoder_decoder::ffmpeg_encoder_decoder
+  ${ffmpeg_image_transport_msgs_TARGETS}
+  rclcpp::rclcpp
+  rosbag2_cpp::rosbag2_cpp
+  rosbag2_storage::rosbag2_storage
+  ${sensor_msgs_TARGETS})
+target_compile_features(uncompress_bag PRIVATE cxx_std_17)
+target_include_directories(uncompress_bag PRIVATE include)
+
 
 install(TARGETS
   bag_to_file
   bag_to_frames
   compress_bag
+  uncompress_bag
   DESTINATION lib/${PROJECT_NAME}/)
 
 if(BUILD_TESTING)
@@ -116,7 +132,18 @@ if(BUILD_TESTING)
   find_package(ament_cmake_clang_format REQUIRED)
   find_package(ament_cmake_lint_cmake REQUIRED)
   find_package(ament_cmake_xmllint REQUIRED)
-
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(${PROJECT_NAME}_test test/test_1.cpp test/test_utils.cpp
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/test)
+  target_include_directories(${PROJECT_NAME}_test PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+  target_link_libraries(${PROJECT_NAME}_test
+    cv_bridge::cv_bridge
+    ${sensor_msgs_TARGETS}
+    rclcpp::rclcpp
+    rosbag2_cpp::rosbag2_cpp
+    rosbag2_storage::rosbag2_storage)
   ament_copyright()
   ament_cppcheck(LANGUAGE c++)
   ament_cpplint(FILTERS "-build/include,-runtime/indentation_namespace")

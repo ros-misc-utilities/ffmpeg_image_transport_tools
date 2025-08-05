@@ -20,6 +20,7 @@
 #include <ffmpeg_encoder_decoder/encoder.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
 #include <ffmpeg_image_transport_tools/bag_processor.hpp>
+#include <ffmpeg_image_transport_tools/frame_info.hpp>
 #include <ffmpeg_image_transport_tools/message_processor.hpp>
 #include <filesystem>
 #include <fstream>
@@ -84,20 +85,10 @@ using ffmpeg_image_transport_msgs::msg::FFMPEGPacket;
 using sensor_msgs::msg::Image;
 using bag_time_t = rcutils_time_point_value_t;
 using namespace std::placeholders;
+using FrameInfo = ffmpeg_image_transport_tools::FrameInfo<Image>;
+using highres_clock = std::chrono::high_resolution_clock;
 
 class Compressor;
-
-struct FrameInfo
-{
-  FrameInfo(
-    const Image::ConstSharedPtr & m, rcutils_time_point_value_t t_r, rcutils_time_point_value_t t_s)
-  : msg(m), t_recv(t_r), t_send(t_s)
-  {
-  }
-  Image::ConstSharedPtr msg;
-  rcutils_time_point_value_t t_recv;
-  rcutils_time_point_value_t t_send;
-};
 
 class EncoderDecoder
 {
@@ -166,11 +157,10 @@ public:
       }
       RCLCPP_INFO_STREAM(logger, "original ros image encoding: " << msg.encoding);
     }
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    const auto t0 = highres_clock::now();
     encoder_.encodeImage(msg);
-    total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       std::chrono::high_resolution_clock::now() - t0)
-                                       .count();
+    total_time_encode_plus_write_ +=
+      std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - t0).count();
     num_frames_encoded_++;
   }
 
@@ -271,11 +261,10 @@ public:
   void flush()
   {
     RCLCPP_INFO_STREAM(logger, "flushing encoder for topic: " << topic_);
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    const auto t0 = highres_clock::now();
     encoder_.flush();
-    total_time_encode_plus_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       std::chrono::high_resolution_clock::now() - t0)
-                                       .count();
+    total_time_encode_plus_write_ +=
+      std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - t0).count();
   }
 
   const FrameInfo & getFrameInfo(const rclcpp::Time & t)
@@ -366,7 +355,7 @@ public:
       meta.serialization_format = rmw_get_serialization_format();
       writer_->create_topic(meta);
     }
-    start_time_ = std::chrono::high_resolution_clock::now();
+    start_time_ = highres_clock::now();
   }
 
   ~Compressor() override
@@ -376,9 +365,9 @@ public:
     }
     RCLCPP_INFO_STREAM(logger, "closing bag file " << out_bag_);
     writer_->close();
-    const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::high_resolution_clock::now() - start_time_)
-                      .count();
+    const auto dt =
+      std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - start_time_)
+        .count();
     RCLCPP_INFO_STREAM(
       logger, "processed " << frame_number_ << " frames in " << 1e-3 * dt
                            << "s = " << (frame_number_ / (1e-3 * dt)) << " fps");
@@ -433,7 +422,7 @@ public:
 private:
   // -------------------- variables
   size_t frame_number_{0};
-  std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+  std::chrono::time_point<highres_clock> start_time_;
   std::unordered_map<std::string, std::shared_ptr<EncoderDecoder>> encoderdecoders_;
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
   std::string out_bag_;
@@ -447,7 +436,7 @@ void EncoderDecoder::packetReady(
 {
   const auto fr = getFrameInfo(stamp);
 
-  const auto t0 = std::chrono::high_resolution_clock::now();
+  const auto t0 = highres_clock::now();
   msg_ = std::make_shared<FFMPEGPacket>();
   msg_->header.frame_id = frame_id;
   msg_->header.stamp = stamp;
@@ -460,9 +449,8 @@ void EncoderDecoder::packetReady(
   memcpy(msg_->data.data(), data, sz);
 
   compressor_->write<FFMPEGPacket>(fr.t_recv, fr.t_send, msg_, topic_);
-  total_time_write_ += std::chrono::duration_cast<std::chrono::milliseconds>(
-                         std::chrono::high_resolution_clock::now() - t0)
-                         .count();
+  total_time_write_ +=
+    std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - t0).count();
   if (check_quality_) {
     if (!decoder_.isInitialized()) {
       if (decoder_type_.empty()) {
@@ -474,15 +462,14 @@ void EncoderDecoder::packetReady(
       }
       RCLCPP_INFO_STREAM(logger, "checking quality using image format: " << quality_msg_pix_fmt_);
     }
-    const auto t1 = std::chrono::high_resolution_clock::now();
+    const auto t1 = highres_clock::now();
     if (!decoder_.decodePacket(
           msg_->encoding, msg_->data.data(), msg_->data.size(), msg_->pts, msg_->header.frame_id,
           msg_->header.stamp)) {
       RCLCPP_ERROR_STREAM(logger, "error decoding packet for topic " << topic_);
     }
-    total_time_decode_ += std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::high_resolution_clock::now() - t1)
-                            .count();
+    total_time_decode_ +=
+      std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - t1).count();
   }
 }
 
