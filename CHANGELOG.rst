@@ -2,8 +2,8 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+3.0.0 (2025-08-08)
+------------------
 * use head_ref for workflow
 * added ffmpeg_encoder_decoder to repos file
 * added gitignore for tests and updated README
