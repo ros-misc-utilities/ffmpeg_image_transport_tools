@@ -407,7 +407,8 @@ public:
 #ifdef USE_NEW_ROSBAG_WRITE_INTERFACE
     writer_->write(smsg, topic, topicType, t_recv, t_send);
 #else
-    writer_->write(*smsg, topic, topicType, t_recv);
+    (void)t_send;
+    writer_->write(smsg, topic, topicType, rclcpp::Time(t_recv));
 #endif
     num_msgs_written_++;
   }
