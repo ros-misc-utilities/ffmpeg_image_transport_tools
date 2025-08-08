@@ -30,13 +30,13 @@ and follow the [instructions here](https://github.com/ros-misc-utilities/.github
 ## About encoders, decoders, and pixel formats
 
 The tools in this package often have many parameters related to encoders, decoders, and pixel formats.
-It is important to understand the terminology, and how single-channel images (like ``mono8`` and Bayer images) handled. Please consult the [ffmpeg\_encoder\_decoder repo](https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder) for more information.
+It is important to understand the terminology, and how single-channel images (like ``mono8`` and Bayer images) are handled.
+Please consult the [ffmpeg\_encoder\_decoder repo](https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder) for more information.
 
 ## Programs for processing rosbags
 
 ### bag\_to\_file
-The ``bag_to_file`` tool simply concatenates the FFMPEGPacket message content from a rosbag into a file, and runs the ``ffmpeg`` tool to
-embed the stream into a an ``mp4`` container.
+The ``bag_to_file`` tool concatenates the FFMPEGPacket message content from a rosbag into a file, and runs the ``ffmpeg`` tool to embed the stream into a an ``mp4`` container.
 ```
 bag_to_file -i input_bag -t topic -r rate [-o out_file] [-T timestamp_file] [-s start_time (sec since epoch)] [-e end_time (sec since epoch)]
 ```
@@ -78,6 +78,7 @@ For example if the codec is ``hevc`` and a bayer image (``bayer_rggb8``) has bee
 [INFO] [1753428586.070137592] [bag_to_frames]: using decoder: hevc
 [WARN] [1753428586.406598438] [Decoder]: hardware frame transfer failed for pixel format yuv420p
 ```
+
 Before the image is written a final conversion to the ``output_format`` is performed. The default is ``bgr8``.
 The format string must follow [ROS convention](https://docs.ros.org/en/jazzy/p/sensor_msgs/generated/program_listing_file_include_sensor_msgs_image_encodings.hpp.html) rather than the libav convention, i.e. ``bgr8`` rather than ``bgr24``.
 
@@ -139,7 +140,7 @@ ros2 run ffmpeg_image_transport_tools compress_bag  -i <input_bag> -o <output_ba
 ```
 
 ### uncompress\_bag
-The ``uncompress\_bag`` program can be used to convert a bag with ffmpeg-encoded images (FFMPEGPacket message type) into images.
+The ``uncompress\_bag`` program can be used to convert a bag with ffmpeg-encoded images (FFMPEGPacket message type) into a bag with regular (sensor_msgs/Image) messages.
 ```
 uncompress_bag -i in_bag -o out_bag -t topic [-t topic ... ] [options]
 options:
