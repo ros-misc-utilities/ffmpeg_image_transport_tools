@@ -14,12 +14,16 @@
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>ament_cmake_clang_format</test_depend>
+  <test_depend>ament_cmake_black</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <depend>cv_bridge</depend>
-  <depend>rclcpp</depend>
   <depend>ffmpeg_encoder_decoder</depend>
   <depend>ffmpeg_image_transport_msgs</depend>
+  <depend>libopencv-imgproc-dev</depend>
   <depend>rosbag2_cpp</depend>
+  <depend>rclcpp</depend>
+  <depend>rcutils</depend>
   <depend>rosbag2_storage</depend>
   <depend>sensor_msgs</depend>
 

@@ -1,5 +1,5 @@
 // -*-c++-*--------------------------------------------------------------------
-// Copyright 2024 Bernd Pfrommer <bernd.pfrommer@gmail.com>
+// Copyright 2025 Bernd Pfrommer <bernd.pfrommer@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,24 +13,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FFMPEG_IMAGE_TRANSPORT_TOOLS__MESSAGE_PROCESSOR_HPP_
-#define FFMPEG_IMAGE_TRANSPORT_TOOLS__MESSAGE_PROCESSOR_HPP_
-
-#include <rcutils/time.h>
-
-#include <rclcpp/rclcpp.hpp>
-
+#ifndef FFMPEG_IMAGE_TRANSPORT_TOOLS__FRAME_INFO_HPP_
+#define FFMPEG_IMAGE_TRANSPORT_TOOLS__FRAME_INFO_HPP_
 namespace ffmpeg_image_transport_tools
 {
-template <typename T>
-class MessageProcessor
+template <typename MsgT>
+struct FrameInfo
 {
-public:
-  virtual ~MessageProcessor() {}
-  virtual void process(
-    rcutils_time_point_value_t recv_time, rcutils_time_point_value_t send_time,
-    const std::string & topic, const typename T::ConstSharedPtr & msg) = 0;
+  FrameInfo(
+    const typename MsgT::ConstSharedPtr & m, rcutils_time_point_value_t t_r,
+    rcutils_time_point_value_t t_s)
+  : msg(m), t_recv(t_r), t_send(t_s)
+  {
+  }
+  typename MsgT::ConstSharedPtr msg;
+  rcutils_time_point_value_t t_recv;
+  rcutils_time_point_value_t t_send;
 };
 }  // namespace ffmpeg_image_transport_tools
-
-#endif  // FFMPEG_IMAGE_TRANSPORT_TOOLS__MESSAGE_PROCESSOR_HPP_
+#endif  // FFMPEG_IMAGE_TRANSPORT_TOOLS__FRAME_INFO_HPP_
