@@ -38,7 +38,7 @@ find_package(rosbag2_storage REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED core imgproc)
 
-if(${rosbag2_cpp_VERSION_MAJOR} GREATER 0 OR ${rosbag2_cpp_VERSION_MINOR} GREATER 9)
+if(${rosbag2_cpp_VERSION} VERSION_GREATER_EQUAL "0.26.0")
   add_definitions(-DUSE_NEW_ROSBAG_WRITE_INTERFACE)
 endif()
 

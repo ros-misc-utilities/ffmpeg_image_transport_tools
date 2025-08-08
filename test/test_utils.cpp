@@ -73,17 +73,17 @@ void makeTestBag(
     writer->create_topic(meta);
   }
   for (const auto & topic : topics) {
-    auto smsg = std::make_shared<rclcpp::SerializedMessage>();
-    rclcpp::Serialization<Image> serialization;
     for (size_t i = 0; i < num_images; i++) {
+      auto smsg = std::make_shared<rclcpp::SerializedMessage>();
+      rclcpp::Serialization<Image> serialization;
       auto m = makeImageMessage(static_cast<uint8_t>(i), width, height, encoding);
-      const rcutils_time_point_value_t t_recv = rclcpp::Time(m->header.stamp).nanoseconds() + 1;
-      const rcutils_time_point_value_t t_send = rclcpp::Time(m->header.stamp).nanoseconds() + 2;
       serialization.serialize_message(m.get(), smsg.get());
+      const rcutils_time_point_value_t t_recv = rclcpp::Time(m->header.stamp).nanoseconds() + 1;
 #ifdef USE_NEW_ROSBAG_WRITE_INTERFACE
+      const rcutils_time_point_value_t t_send = rclcpp::Time(m->header.stamp).nanoseconds() + 2;
       writer->write(smsg, topic, topic_type, t_recv, t_send);
 #else
-      writer->write(*smsg, topic, topic_type, t_recv);
+      writer->write(smsg, topic, topic_type, rclcpp::Time(t_recv));
 #endif
     }
   }
