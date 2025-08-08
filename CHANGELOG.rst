@@ -2,6 +2,22 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* use head_ref for workflow
+* added ffmpeg_encoder_decoder to repos file
+* added gitignore for tests and updated README
+* added uncompress_bag and tests
+* adapt to decoder api changes
+* switch to black python formatting
+* more documentation, better logging
+* be able to compare different size images
+* keep recording time stamps for flushing
+* dont create emtpy history file
+* added quality test/decoding
+* added compress_bag and fixed some bugs
+* Contributors: Bernd Pfrommer
+
 2.1.2 (2025-05-26)
 ------------------
 * avoid ament_target_dependencies
