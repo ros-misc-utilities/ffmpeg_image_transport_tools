@@ -15,6 +15,7 @@
 
 #include <unistd.h>
 
+#include <ffmpeg_encoder_decoder/utils.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
 #include <ffmpeg_image_transport_tools/bag_processor.hpp>
 #include <ffmpeg_image_transport_tools/message_processor.hpp>
@@ -55,10 +56,8 @@ static void convertToMP4(const std::string & raw, const std::string & mp4, doubl
 class FileWriter : public ffmpeg_image_transport_tools::MessageProcessor<FFMPEGPacket>
 {
 public:
-  FileWriter(const std::string & raw_file, const std::string & ts_file)
+  FileWriter(const std::string & raw_file, const std::string & ts_file) : base_name_(raw_file)
   {
-    RCLCPP_INFO_STREAM(logger, "writing to raw file: " << raw_file);
-    raw_file_ = std::ofstream(raw_file, std::ios::out | std::ios::binary);
     ts_file_.open(ts_file);
   }
 
@@ -68,12 +67,21 @@ public:
   {
     (void)t_send;
     const auto t_header = Time(m->header.stamp).nanoseconds();
+    if (!raw_file_.is_open()) {
+      const auto codec = ffmpeg_encoder_decoder::utils::split_encoding(m->encoding)[0];
+      raw_file_name_ = base_name_ + "." + codec;
+      RCLCPP_INFO_STREAM(logger, "writing to raw file: " << raw_file_name_);
+      raw_file_ = std::ofstream(raw_file_name_, std::ios::out | std::ios::binary);
+    }
     raw_file_.write(reinterpret_cast<const char *>(m->data.data()), m->data.size());
     ts_file_ << packet_number_++ << " " << m->pts << " " << t_header << " "
              << rclcpp::Time(t_recv).nanoseconds() << std::endl;
   }
+  const auto & getRawFileName() const { return raw_file_name_; }
 
 private:
+  std::string base_name_{"invalid"};
+  std::string raw_file_name_{"invalid"};
   std::ofstream raw_file_;
   std::ofstream ts_file_;
   size_t packet_number_{0};
@@ -149,13 +157,11 @@ int main(int argc, char ** argv)
     usage();
     return (-1);
   }
-
-  const std::string raw_file = out_file + ".h264";
   const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
   std::vector<std::string> topics{topic};
   ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
     logger, bag, topics, topic_type, start_time, end_time);
-  FileWriter fw(raw_file, time_stamp_file);
+  FileWriter fw(out_file, time_stamp_file);
   bproc.process(&fw);
-  convertToMP4(raw_file, out_file + ".mp4", rate);
+  convertToMP4(fw.getRawFileName(), out_file + ".mp4", rate);
 }
