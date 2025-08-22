@@ -2,6 +2,12 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* use new workflow with better handling of vcs_url
+* automatic file suffix for bag_to_file
+* Contributors: Bernd Pfrommer
+
 3.0.0 (2025-08-08)
 ------------------
 * use head_ref for workflow
