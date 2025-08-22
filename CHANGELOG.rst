@@ -2,8 +2,8 @@
 Changelog for package ffmpeg_image_transport_tools
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+3.0.1 (2025-08-22)
+------------------
 * use new workflow with better handling of vcs_url
 * automatic file suffix for bag_to_file
 * Contributors: Bernd Pfrommer
