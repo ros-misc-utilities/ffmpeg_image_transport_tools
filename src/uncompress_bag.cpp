@@ -247,7 +247,7 @@ public:
     auto smsg = std::make_shared<rclcpp::SerializedMessage>();
     rclcpp::Serialization<MsgT> serialization;
     serialization.serialize_message(m.get(), smsg.get());
-    const std::string topicType = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
+    const std::string topicType = "sensor_msgs/msg/Image";
 #ifdef USE_NEW_ROSBAG_WRITE_INTERFACE
     writer_->write(smsg, topic, topicType, t_recv, t_send);
 #else
