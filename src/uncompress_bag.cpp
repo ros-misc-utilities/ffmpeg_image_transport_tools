@@ -13,8 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <ffmpeg_encoder_decoder/decoder.hpp>
 #include <ffmpeg_image_transport_msgs/msg/ffmpeg_packet.hpp>
@@ -23,14 +25,40 @@
 #include <ffmpeg_image_transport_tools/message_processor.hpp>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <rclcpp/rclcpp.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <rosbag2_cpp/writers/sequential_writer.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sstream>
+#ifdef USE_CV_BRIDGE_HPP
+#include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.h>
+#endif
+#include <opencv2/imgproc.hpp>
 
 static rclcpp::Logger logger = rclcpp::get_logger("uncompress_bag");
+
+static std::string rosTimeToLocalString(const rclcpp::Time & stamp)
+{
+  const auto ns = stamp.nanoseconds();
+  const std::chrono::system_clock::time_point tp{std::chrono::nanoseconds(ns)};
+  const std::time_t tt = std::chrono::system_clock::to_time_t(tp);
+
+  std::tm local_tm{};
+  localtime_r(&tt, &local_tm);
+
+  std::ostringstream oss;
+  oss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
+
+  const auto sec_tp = std::chrono::time_point_cast<std::chrono::seconds>(tp);
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(tp - sec_tp).count();
+  oss << '.' << std::setw(3) << std::setfill('0') << ms;
+  return oss.str();
+}
 
 void usage()
 {
@@ -38,6 +66,7 @@ void usage()
   std::cout
     << "uncompress_bag -i in_bag -o out_bag -t topic [-t topic ... ] [options]\n"
        "options:\n"
+       " -T encode timestamps into video (default: false)\n"
        " -s start_time [in sec since epoch]\n"
        " -e end_time [in sec since epoch]\n"
        "  ------- decoder options ------\n"
@@ -150,6 +179,8 @@ public:
     return (num_frames_decoded_ / (t * 1e-3));
   }
 
+  void setShowTimestamp(bool b) { show_timestamp_ = b; }
+
 private:
   const FrameInfo & getFrameInfo(const rclcpp::Time & t)
   {
@@ -164,6 +195,8 @@ private:
   void frameReady(
     const Image::ConstSharedPtr & msg, bool /* is_key_frame */, const std::string & av_pix_format);
 
+  Image::ConstSharedPtr drawTimestamp(const Image::ConstSharedPtr & msg) const;
+
   UnCompressor * uncompressor_;
   std::string topic_;
   std::string frame_id_;
@@ -175,6 +208,7 @@ private:
   bool warn_of_size_mismatch_{true};
   bool waiting_for_key_frame_{false};
   bool wait_for_key_frame_{false};
+  bool show_timestamp_{false};
   uint64_t total_time_{0};        // in milliseconds
   uint64_t total_time_write_{0};  // in milliseconds
 };
@@ -183,12 +217,13 @@ class UnCompressor : public ffmpeg_image_transport_tools::MessageProcessor<FFMPE
 {
 public:
   UnCompressor(
-    const std::string & out_bag, const std::vector<std::string> & topics,
+    const std::string & out_bag, const std::vector<std::string> & topics, bool show_timestamp,
     const std::unordered_map<std::string, std::string> & options)
   : out_bag_(out_bag)
   {
     for (const std::string & topic : topics) {
       decoders_.insert({topic, std::make_shared<Decoder>(this, topic + "/decoded", options)});
+      decoders_[topic]->setShowTimestamp(show_timestamp);
     }
     writer_ = std::make_unique<rosbag2_cpp::Writer>();
     try {
@@ -267,12 +302,37 @@ private:
   size_t num_msgs_written_{0};
 };
 
+Image::ConstSharedPtr Decoder::drawTimestamp(const Image::ConstSharedPtr & msg) const
+{
+  cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
+  const std::string ts_text = rosTimeToLocalString(rclcpp::Time(msg->header.stamp));
+
+  const int font_face = cv::FONT_HERSHEY_SIMPLEX;
+  const double font_scale = std::max(0.5, cv_ptr->image.rows / 1080.0);
+  const int thickness = 2;
+  int baseline = 0;
+  (void)cv::getTextSize(ts_text, font_face, font_scale, thickness, &baseline);
+
+  const cv::Point origin(10, cv_ptr->image.rows - 10);
+  cv::putText(
+    cv_ptr->image, ts_text, origin + cv::Point(1, 1), font_face, font_scale, cv::Scalar(0, 0, 0),
+    thickness + 2, cv::LINE_AA);
+  cv::putText(
+    cv_ptr->image, ts_text, origin, font_face, font_scale, cv::Scalar(255, 255, 255), thickness,
+    cv::LINE_AA);
+
+  auto out = cv_ptr->toImageMsg();
+  out->header = msg->header;
+  return out;
+}
+
 void Decoder::frameReady(
   const Image::ConstSharedPtr & msg, bool /* is_key_frame */, const std::string & /*pix fmt*/)
 {
-  const auto fr = getFrameInfo(msg->header.stamp);
   const auto t0 = highres_clock::now();
-  uncompressor_->write<Image>(fr.t_recv, fr.t_send, msg, topic_);
+  const auto fr = getFrameInfo(msg->header.stamp);
+  auto m = show_timestamp_ ? drawTimestamp(msg) : msg;
+  uncompressor_->write<Image>(fr.t_recv, fr.t_send, m, topic_);
   num_frames_decoded_++;
   total_time_write_ +=
     std::chrono::duration_cast<std::chrono::milliseconds>(highres_clock::now() - t0).count();
@@ -289,8 +349,9 @@ int main(int argc, char ** argv)
 
   bag_time_t start_time = std::numeric_limits<bag_time_t>::min();
   bag_time_t end_time = std::numeric_limits<bag_time_t>::max();
+  bool show_time_stamps = false;
 
-  while ((opt = getopt(argc, argv, "i:o:t:D:s:e:h")) != -1) {
+  while ((opt = getopt(argc, argv, "i:o:t:D:s:e:Th")) != -1) {
     switch (opt) {
       case 'i':
         in_bag = optarg;
@@ -300,6 +361,9 @@ int main(int argc, char ** argv)
         break;
       case 't':
         topics.push_back(optarg);
+        break;
+      case 'T':
+        show_time_stamps = true;
         break;
       case 'D': {
         std::string key_value(optarg);
@@ -362,6 +426,6 @@ int main(int argc, char ** argv)
   const std::string topic_type = "ffmpeg_image_transport_msgs/msg/FFMPEGPacket";
   ffmpeg_image_transport_tools::BagProcessor<FFMPEGPacket> bproc(
     logger, in_bag, topics, topic_type, start_time, end_time);
-  UnCompressor unc(out_bag, topics, options);
+  UnCompressor unc(out_bag, topics, show_time_stamps, options);
   bproc.process(&unc);
 }
